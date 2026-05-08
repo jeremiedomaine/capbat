@@ -1,8 +1,19 @@
-import { type NextRequest } from "next/server"
+import { type NextRequest, NextResponse } from "next/server"
 import { updateSession } from "@/lib/supabase/middleware"
 
 export async function middleware(request: NextRequest) {
-  return updateSession(request)
+  try {
+    return await updateSession(request)
+  } catch (error) {
+    console.error("[middleware] invocation failed", error)
+    const pathname = request.nextUrl.pathname
+    if (pathname.startsWith("/api/")) {
+      return NextResponse.json({ error: "Middleware indisponible." }, { status: 503 })
+    }
+    const login = request.nextUrl.clone()
+    login.pathname = "/login"
+    return NextResponse.redirect(login)
+  }
 }
 
 export const config = {
