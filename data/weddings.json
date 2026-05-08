@@ -1,0 +1,56 @@
+[
+  {
+    "id": 2,
+    "couple": "Sophie & Thomas",
+    "contactName": "Sophie",
+    "email": "Sophie.maine.testsupa@gmail.com",
+    "phone": "0661613566",
+    "eventDate": "2026-05-14",
+    "deposit": {
+      "amount": "2 100 €",
+      "status": "paid"
+    },
+    "balance": {
+      "amount": "4 900 €",
+      "status": "paid"
+    },
+    "autopilot": true,
+    "lastActivity": "Événement modifié"
+  },
+  {
+    "id": 3,
+    "couple": "Emma & Léo",
+    "contactName": "Emma",
+    "email": "Test@tes.comsupa",
+    "phone": "0673155216",
+    "eventDate": "2026-07-05",
+    "deposit": {
+      "amount": "1 800 €",
+      "status": "paid"
+    },
+    "balance": {
+      "amount": "4 200 €",
+      "status": "pending"
+    },
+    "autopilot": true,
+    "lastActivity": "Événement modifié"
+  },
+  {
+    "id": 4,
+    "couple": "Clara & Antoine",
+    "contactName": "Antoine",
+    "email": "Antoine.dupont@gmail.com",
+    "phone": "0687876754",
+    "eventDate": "2026-09-20",
+    "deposit": {
+      "amount": "2 400 €",
+      "status": "pending"
+    },
+    "balance": {
+      "amount": "5 600 €",
+      "status": "pending"
+    },
+    "autopilot": true,
+    "lastActivity": "Événement modifié"
+  }
+]
