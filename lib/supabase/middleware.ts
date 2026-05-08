@@ -1,12 +1,9 @@
 import { createServerClient } from "@supabase/ssr"
 import { NextResponse, type NextRequest } from "next/server"
+import { getSupabasePublicKey, getSupabasePublicUrl } from "@/lib/supabase/env-public"
 
 function resolvePublicSupabaseConfig() {
-  const url = process.env.NEXT_PUBLIC_SUPABASE_URL?.trim()
-  const key =
-    process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY?.trim() ||
-    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY?.trim()
-  return { url, key }
+  return { url: getSupabasePublicUrl(), key: getSupabasePublicKey() }
 }
 
 export async function updateSession(request: NextRequest) {

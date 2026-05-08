@@ -1,12 +1,16 @@
 import { createServerClient } from "@supabase/ssr"
 import { cookies } from "next/headers"
+import { getSupabasePublicKey, getSupabasePublicUrl } from "@/lib/supabase/env-public"
 
 export async function createClient() {
   const cookieStore = await cookies()
+  const url = getSupabasePublicUrl()
+  const key = getSupabasePublicKey()
+  if (!url || !key) {
+    throw new Error("Variables NEXT_PUBLIC_SUPABASE_URL et clé publique Supabase manquantes.")
+  }
 
-  return createServerClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY!,
+  return createServerClient(url, key,
     {
       cookies: {
         getAll() {

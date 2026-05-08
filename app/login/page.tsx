@@ -39,6 +39,10 @@ function LoginForm() {
 
       router.push(next.startsWith("/") ? next : "/")
       router.refresh()
+    } catch (err) {
+      const message =
+        err instanceof Error ? err.message : "Impossible de se connecter. Réessayez plus tard."
+      setError(message)
     } finally {
       setLoading(false)
     }
