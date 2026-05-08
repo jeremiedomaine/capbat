@@ -161,10 +161,14 @@ export function WeddingsTable() {
             <p className="font-medium">Données non chargées</p>
             <p className="mt-1 text-red-700">{loadError}</p>
             <p className="mt-2 text-xs text-red-600">
-              Sur Vercel, vérifie notamment{" "}
-              <strong>SUPABASE_SERVICE_ROLE_KEY</strong> (clé secrète « service_role », pas la clé
-              anon), <strong>NEXT_PUBLIC_SUPABASE_URL</strong> et éventuellement{" "}
-              <strong>SUPABASE_RESERVATIONS_TABLE</strong>.
+              Dans Vercel → Settings → Environment Variables : pour chaque variable, coche{" "}
+              <strong>Production</strong> (pas seulement Preview). Ajoute{" "}
+              <strong>NEXT_PUBLIC_SUPABASE_URL</strong>{" "}
+              <span className="opacity-90">
+                (ou duplique la même URL en <strong>SUPABASE_URL</strong> côté serveur)
+              </span>
+              , plus <strong>SUPABASE_SERVICE_ROLE_KEY</strong> (secret service_role). Optionnel :{" "}
+              <strong>SUPABASE_RESERVATIONS_TABLE</strong>. Puis Redeploy.
             </p>
           </div>
         ) : null}

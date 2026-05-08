@@ -4,6 +4,14 @@ export function getSupabasePublicUrl(): string | undefined {
 }
 
 /**
+ * URL pour le client admin (API routes) : d’abord la var publique, puis `SUPABASE_URL`
+ * (souvent dupliquée sur Vercel côté serveur uniquement — même valeur que l’URL du projet).
+ */
+export function getSupabaseUrlForServer(): string | undefined {
+  return getSupabasePublicUrl() || process.env.SUPABASE_URL?.trim() || undefined
+}
+
+/**
  * Clé publique navigateur : publishable (sb_publishable_…) ou clé anon JWT classique.
  * Les deux noms sont acceptés pour coller à la doc Supabase et aux dashboards Vercel.
  */
