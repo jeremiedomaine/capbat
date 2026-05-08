@@ -6,14 +6,12 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Input } from "@/components/ui/input"
 import { Switch } from "@/components/ui/switch"
 import { Button } from "@/components/ui/button"
-import { Badge } from "@/components/ui/badge"
 
 export default function ParametresPage() {
   const [companyName, setCompanyName] = useState("Domaine des Roses")
   const [managerName, setManagerName] = useState("Marie Clement")
   const [email, setEmail] = useState("contact@domainedesroses.fr")
   const [phone, setPhone] = useState("+33 6 12 34 56 78")
-  const [rib, setRib] = useState("FR76 3000 4000 5000 6000 7000 189")
 
   const [emailNotif, setEmailNotif] = useState(true)
   const [paymentAlerts, setPaymentAlerts] = useState(true)
@@ -94,25 +92,6 @@ export default function ParametresPage() {
 
           <Card className="bg-white border-gray-100 shadow-sm">
             <CardHeader>
-              <CardTitle>Informations bancaires</CardTitle>
-              <CardDescription>
-                Renseignez le RIB utilise pour les virements.
-              </CardDescription>
-            </CardHeader>
-            <CardContent>
-              <div className="space-y-2">
-                <label className="text-sm font-medium text-gray-800">RIB</label>
-                <Input
-                  value={rib}
-                  onChange={(e) => setRib(e.target.value)}
-                  placeholder="FR76 3000 4000 5000 6000 7000 189"
-                />
-              </div>
-            </CardContent>
-          </Card>
-
-          <Card className="bg-white border-gray-100 shadow-sm">
-            <CardHeader>
               <CardTitle>Notifications et interface</CardTitle>
               <CardDescription>Activez les options globales de confort et de suivi.</CardDescription>
             </CardHeader>
@@ -141,20 +120,6 @@ export default function ParametresPage() {
                 checked={darkMode}
                 onCheckedChange={setDarkMode}
               />
-            </CardContent>
-          </Card>
-
-          <Card className="bg-white border-gray-100 shadow-sm">
-            <CardHeader>
-              <CardTitle>Abonnement</CardTitle>
-              <CardDescription>Informations de votre formule actuelle.</CardDescription>
-            </CardHeader>
-            <CardContent className="flex items-center justify-between gap-4 flex-wrap">
-              <div className="space-y-1">
-                <p className="text-sm text-gray-700 font-medium">Plan Pro</p>
-                <p className="text-xs text-gray-500">Jusqu&apos;a 150 evenements actifs</p>
-              </div>
-              <Badge className="bg-emerald-50 text-emerald-700 border-0">Actif</Badge>
             </CardContent>
           </Card>
 

@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react"
 import { Card, CardContent } from "@/components/ui/card"
-import { Clock, Banknote, BellRing } from "lucide-react"
+import { CalendarDays, Banknote, BellRing } from "lucide-react"
 
 type PaymentStatus = "pending" | "paid" | "to_collect"
 type WeddingRow = {
@@ -40,11 +40,23 @@ export function KpiCards() {
   }, [loadWeddings])
 
   const kpis = useMemo(() => {
-    const pendingDepositRows = rows.filter((row) => row.deposit.status !== "paid")
-    const pendingDepositTotal = pendingDepositRows.reduce(
-      (sum, row) => sum + parseEuroAmount(row.deposit.amount),
-      0
-    )
+    const todayKey = getTodayCalendarIsoKey()
+
+    const futureWeddings = rows.filter((row) => {
+      const key = resolveEventDateKey(row.eventDate)
+      return key !== null && key > todayKey
+    })
+
+    const paidDepositAndBalanceTotal = futureWeddings.reduce((sum, row) => {
+      let partial = sum
+      if (row.deposit.status === "paid") {
+        partial += parseEuroAmount(row.deposit.amount)
+      }
+      if (row.balance.status === "paid") {
+        partial += parseEuroAmount(row.balance.amount)
+      }
+      return partial
+    }, 0)
 
     const now = new Date()
     const targetMonth = now.getMonth()
@@ -69,13 +81,13 @@ export function KpiCards() {
 
     return [
       {
-        title: "Acomptes en attente",
-        value: `${pendingDepositRows.length} mariages`,
-        subtext: `${formatEuro(pendingDepositTotal)} à percevoir`,
-        icon: Clock,
-        iconBg: "bg-amber-50",
-        iconColor: "text-amber-500",
-        trend: "Statut en temps réel",
+        title: "Mariages prévus",
+        value: `${futureWeddings.length} mariages`,
+        subtext: `${formatEuro(paidDepositAndBalanceTotal)} encaissés (acomptes + soldes payés)`,
+        icon: CalendarDays,
+        iconBg: "bg-violet-50",
+        iconColor: "text-violet-600",
+        trend: "Dates strictement après aujourd’hui",
       },
       {
         title: "Soldes à encaisser ce mois-ci",
@@ -147,4 +159,26 @@ function parseEventDate(value: string) {
     return new Date(year, month - 1, day)
   }
   return new Date(value)
+}
+
+/** YYYY-MM-DD au calendrier local (aligné filtre J-N / tableau). */
+function getTodayCalendarIsoKey() {
+  const d = new Date()
+  d.setHours(12, 0, 0, 0)
+  const y = d.getFullYear()
+  const m = String(d.getMonth() + 1).padStart(2, "0")
+  const day = String(d.getDate()).padStart(2, "0")
+  return `${y}-${m}-${day}`
+}
+
+function resolveEventDateKey(raw: string): string | null {
+  const trimmed = raw.trim()
+  const head = trimmed.slice(0, 10)
+  if (/^\d{4}-\d{2}-\d{2}$/.test(head)) return head
+  const d = parseEventDate(trimmed)
+  if (Number.isNaN(d.getTime())) return null
+  const y = d.getFullYear()
+  const m = String(d.getMonth() + 1).padStart(2, "0")
+  const day = String(d.getDate()).padStart(2, "0")
+  return `${y}-${m}-${day}`
 }
