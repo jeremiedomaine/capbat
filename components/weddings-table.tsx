@@ -58,14 +58,33 @@ export function WeddingsTable() {
   const [editBalanceAmount, setEditBalanceAmount] = useState("")
   const [editSubmitting, setEditSubmitting] = useState(false)
   const [deleteSubmitting, setDeleteSubmitting] = useState(false)
+  const [loadError, setLoadError] = useState("")
 
   const refreshRows = useCallback(async () => {
+    setLoadError("")
     try {
-      const response = await fetch("/api/weddings")
-      const payload = (await response.json()) as { weddings: WeddingRow[] }
+      const response = await fetch("/api/weddings", { credentials: "same-origin" })
+      const payload = (await response.json()) as {
+        weddings?: WeddingRow[]
+        error?: string
+      }
+
+      if (!response.ok) {
+        const hint =
+          response.status === 403
+            ? " Vérifie INTERNAL_ALLOWED_EMAILS sur Vercel : ton email doit être dans la liste."
+            : response.status === 401
+              ? " Session expirée : reconnecte-toi."
+              : ""
+        setRows([])
+        setLoadError((payload.error ?? `Erreur ${response.status}`) + hint)
+        return
+      }
+
       setRows(payload.weddings ?? [])
     } catch {
       setRows([])
+      setLoadError("Impossible de joindre le serveur.")
     } finally {
       setLoading(false)
     }
@@ -137,6 +156,18 @@ export function WeddingsTable() {
         </div>
       </CardHeader>
       <CardContent className="p-0">
+        {loadError ? (
+          <div className="mx-6 mt-4 mb-2 rounded-lg border border-red-100 bg-red-50 px-4 py-3 text-sm text-red-800">
+            <p className="font-medium">Données non chargées</p>
+            <p className="mt-1 text-red-700">{loadError}</p>
+            <p className="mt-2 text-xs text-red-600">
+              Sur Vercel, vérifie notamment{" "}
+              <strong>SUPABASE_SERVICE_ROLE_KEY</strong> (clé secrète « service_role », pas la clé
+              anon), <strong>NEXT_PUBLIC_SUPABASE_URL</strong> et éventuellement{" "}
+              <strong>SUPABASE_RESERVATIONS_TABLE</strong>.
+            </p>
+          </div>
+        ) : null}
         <Table>
           <TableHeader>
             <TableRow className="border-gray-50 hover:bg-transparent">

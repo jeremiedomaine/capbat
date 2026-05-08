@@ -3,10 +3,15 @@ import { gateInternalToolAccess } from "@/lib/auth/internal-session"
 import { createWedding, listWeddings } from "@/lib/weddings-store"
 
 export async function GET() {
-  const denied = await gateInternalToolAccess()
-  if (denied) return denied
-  const weddings = await listWeddings()
-  return NextResponse.json({ weddings })
+  try {
+    const denied = await gateInternalToolAccess()
+    if (denied) return denied
+    const weddings = await listWeddings()
+    return NextResponse.json({ weddings })
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "Erreur interne"
+    return NextResponse.json({ error: message, weddings: [] }, { status: 500 })
+  }
 }
 
 export async function POST(request: Request) {

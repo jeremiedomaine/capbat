@@ -18,8 +18,12 @@ export function KpiCards() {
 
   const loadWeddings = useCallback(async () => {
     try {
-      const response = await fetch("/api/weddings")
-      const payload = (await response.json()) as { weddings: WeddingRow[] }
+      const response = await fetch("/api/weddings", { credentials: "same-origin" })
+      const payload = (await response.json()) as { weddings?: WeddingRow[] }
+      if (!response.ok) {
+        setRows([])
+        return
+      }
       setRows(payload.weddings ?? [])
     } catch {
       setRows([])
