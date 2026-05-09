@@ -4,6 +4,10 @@
   "crons": [
     {
       "path": "/api/automations/deposit-reminder",
+      "schedule": "0 7 * * *"
+    },
+    {
+      "path": "/api/automations/deposit-reminder",
       "schedule": "0 8 * * *"
     }
   ]
