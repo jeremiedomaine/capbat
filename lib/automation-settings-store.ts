@@ -21,8 +21,8 @@
 import { getSupabaseAdmin } from "@/lib/supabase/admin"
 import {
   DEFAULT_AUTOMATION_MESSAGE,
-  DEFAULT_AUTOMATION_SEND_TIME,
   DEFAULT_AUTOMATION_SUBJECT,
+  FIXED_AUTOMATION_SEND_TIME,
 } from "@/lib/automation-defaults"
 
 const TABLE = process.env.SUPABASE_AUTOMATION_SETTINGS_TABLE?.trim() || "automation_settings"
@@ -59,7 +59,7 @@ export async function getAutomationSettings(): Promise<AutomationSettings> {
       return {
         messageTemplate: DEFAULT_AUTOMATION_MESSAGE,
         subjectTemplate: DEFAULT_AUTOMATION_SUBJECT,
-        sendTime: DEFAULT_AUTOMATION_SEND_TIME,
+        sendTime: FIXED_AUTOMATION_SEND_TIME,
         lastDepositReminderParisDate: null,
       }
     }
@@ -74,14 +74,14 @@ export async function getAutomationSettings(): Promise<AutomationSettings> {
     return {
       messageTemplate: row.message_template?.trim() || DEFAULT_AUTOMATION_MESSAGE,
       subjectTemplate: row.subject_template?.trim() || DEFAULT_AUTOMATION_SUBJECT,
-      sendTime: row.send_time?.trim() || DEFAULT_AUTOMATION_SEND_TIME,
+      sendTime: FIXED_AUTOMATION_SEND_TIME,
       lastDepositReminderParisDate: row.last_deposit_reminder_paris_date?.trim() || null,
     }
   } catch {
     return {
       messageTemplate: DEFAULT_AUTOMATION_MESSAGE,
       subjectTemplate: DEFAULT_AUTOMATION_SUBJECT,
-      sendTime: DEFAULT_AUTOMATION_SEND_TIME,
+      sendTime: FIXED_AUTOMATION_SEND_TIME,
       lastDepositReminderParisDate: null,
     }
   }
@@ -105,7 +105,6 @@ export async function markDepositReminderParisDate(isoCalendarDate: string) {
 export async function upsertAutomationSettings(input: {
   messageTemplate: string
   subjectTemplate: string
-  sendTime: string
 }) {
   const { error } = await getSupabaseAdmin()
     .from(TABLE)
@@ -114,7 +113,7 @@ export async function upsertAutomationSettings(input: {
         id: 1,
         message_template: input.messageTemplate.trim(),
         subject_template: input.subjectTemplate.trim() || DEFAULT_AUTOMATION_SUBJECT,
-        send_time: input.sendTime.trim(),
+        send_time: FIXED_AUTOMATION_SEND_TIME,
       },
       { onConflict: "id" }
     )

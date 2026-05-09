@@ -5,19 +5,20 @@ import {
 } from "@/lib/automation-settings-store"
 import {
   addCalendarDaysInTimeZone,
-  AUTOMATION_CRON_POLL_MINUTES,
+  getAutomationCronPollMinutes,
   getAutomationTimezone,
   getZonedCalendarDateAndMinutes,
   shouldRunScheduledSend,
 } from "@/lib/automation-schedule"
+import { FIXED_AUTOMATION_SEND_TIME } from "@/lib/automation-defaults"
 import { buildAutomationVariableMap, renderTemplate } from "@/lib/email-template"
 import { listWeddings } from "@/lib/weddings-store"
 import { getResendClient } from "@/lib/resend"
 
 /**
- * POST pour les tests manuels (curl) ; GET pour Vercel Cron (toutes les 10 min).
- * Horaire réel = `send_time` en base (page Automatisations), fuseau `AUTOMATION_TIMEZONE` (défaut Europe/Paris).
- * `?dryRun=1` : ignore le créneau. `?skipSchedule=1` : envoi hors créneau (tests, ne marque pas la journée comme traitée).
+ * POST pour les tests manuels (curl) ; GET pour Vercel Cron (`0 * * * *`).
+ * Envoi autorisé une fois par jour entre 9h00 et 9h55 (fuseau `AUTOMATION_TIMEZONE`, défaut Europe/Paris).
+ * `?dryRun=1` : ignore le créneau. `?skipSchedule=1` : envoi immédiat (tests, ne marque pas la journée).
  */
 export async function GET(request: Request) {
   return runDepositReminder(request)
@@ -40,10 +41,12 @@ async function runDepositReminder(request: Request) {
   const timeZone = getAutomationTimezone()
   const targetDate = addCalendarDaysInTimeZone(timeZone, daysAhead)
 
-  const scheduleCheck = shouldRunScheduledSend(automation.sendTime, {
+  const pollWindowMinutes = getAutomationCronPollMinutes()
+  const scheduleCheck = shouldRunScheduledSend(FIXED_AUTOMATION_SEND_TIME, {
     timeZone,
-    pollWindowMinutes: AUTOMATION_CRON_POLL_MINUTES,
+    pollWindowMinutes,
   })
+  const calendarDate = getZonedCalendarDateAndMinutes(timeZone).calendarDate
 
   if (!dryRun && !skipSchedule) {
     if (!scheduleCheck.run) {
@@ -51,22 +54,22 @@ async function runDepositReminder(request: Request) {
         ok: true,
         skipped: true,
         reason: "outside_send_window",
-        sendTime: automation.sendTime,
+        sendTime: FIXED_AUTOMATION_SEND_TIME,
         timeZone,
-        pollWindowMinutes: AUTOMATION_CRON_POLL_MINUTES,
+        pollWindowMinutes,
         calendarDate: scheduleCheck.calendarDate,
         nowMinutes: scheduleCheck.nowMinutes,
         targetMinutes: scheduleCheck.targetMinutes,
       })
     }
-    if (automation.lastDepositReminderParisDate === scheduleCheck.calendarDate) {
+    if (automation.lastDepositReminderParisDate === calendarDate) {
       return NextResponse.json({
         ok: true,
         skipped: true,
         reason: "already_ran_today",
-        sendTime: automation.sendTime,
+        sendTime: FIXED_AUTOMATION_SEND_TIME,
         timeZone,
-        calendarDate: scheduleCheck.calendarDate,
+        calendarDate,
       })
     }
   }
@@ -87,12 +90,12 @@ async function runDepositReminder(request: Request) {
       filter: "balance_pending_only",
       count: candidates.length,
       recipients: candidates.map((wedding) => wedding.email),
-      sendTime: automation.sendTime,
+      sendTime: FIXED_AUTOMATION_SEND_TIME,
       timeZone,
       schedule: {
         withinSendWindow: scheduleCheck.run,
         calendarDate: scheduleCheck.calendarDate,
-        pollWindowMinutes: AUTOMATION_CRON_POLL_MINUTES,
+        pollWindowMinutes,
       },
     })
   }
@@ -138,8 +141,9 @@ async function runDepositReminder(request: Request) {
     sent: sentTo.length,
     failed: failures.length,
     failures,
-    sendTime: automation.sendTime,
+    sendTime: FIXED_AUTOMATION_SEND_TIME,
     timeZone,
+    pollWindowMinutes,
   })
 }
 

@@ -70,7 +70,7 @@ export function DashboardHeader() {
         </DropdownMenu>
         <Button
           asChild
-          className="bg-emerald-600 hover:bg-emerald-700 text-white text-sm h-9 px-4 shadow-sm"
+          className="bg-blue-600 hover:bg-blue-700 text-white text-sm h-9 px-4 shadow-sm"
         >
           <Link href="/evenements/nouveau">+ Nouvel événement</Link>
         </Button>

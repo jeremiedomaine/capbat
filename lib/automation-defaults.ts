@@ -5,4 +5,7 @@ export const DEFAULT_AUTOMATION_MESSAGE =
 
 export const DEFAULT_AUTOMATION_SUBJECT = "Rappel solde - mariage du {{date_mariage}}"
 
-export const DEFAULT_AUTOMATION_SEND_TIME = "09:00"
+/** Heure fixe des relances (fuseau `AUTOMATION_TIMEZONE`, défaut Europe/Paris). Non modifiable dans l’app. */
+export const FIXED_AUTOMATION_SEND_TIME = "09:00"
+
+export const DEFAULT_AUTOMATION_SEND_TIME = FIXED_AUTOMATION_SEND_TIME

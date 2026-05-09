@@ -1,5 +1,15 @@
-/** Fenêtre d’exécution du cron Vercel (minutes) — doit correspondre à `vercel.json`. */
-export const AUTOMATION_CRON_POLL_MINUTES = 10
+/**
+ * Fenêtre (minutes) après l’heure choisie : le cron Vercel doit passer au moins une fois dedans.
+ * - Cron **horaire** `0 * * * *` : défaut **55** (une heure civile, marge Hobby « ±1 h »).
+ * - Sinon surcharger avec `AUTOMATION_CRON_POLL_MINUTES`.
+ */
+export function getAutomationCronPollMinutes() {
+  const raw = process.env.AUTOMATION_CRON_POLL_MINUTES?.trim()
+  if (raw === undefined || raw === "") return 55
+  const n = Number.parseInt(raw, 10)
+  if (!Number.isFinite(n) || n < 10 || n > 120) return 55
+  return n
+}
 
 export function getAutomationTimezone() {
   return process.env.AUTOMATION_TIMEZONE?.trim() || "Europe/Paris"

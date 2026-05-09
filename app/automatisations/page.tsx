@@ -3,34 +3,17 @@
 import { useEffect, useMemo, useRef, useState } from "react"
 import { Sidebar } from "@/components/sidebar"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select"
 import { Textarea } from "@/components/ui/textarea"
 import { Input } from "@/components/ui/input"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
 import {
   DEFAULT_AUTOMATION_MESSAGE,
-  DEFAULT_AUTOMATION_SEND_TIME,
   DEFAULT_AUTOMATION_SUBJECT,
+  FIXED_AUTOMATION_SEND_TIME,
 } from "@/lib/automation-defaults"
 import { buildAutomationVariableMap, renderTemplate } from "@/lib/email-template"
 import type { Wedding } from "@/lib/weddings-store"
-
-const timeSlots = [
-  { value: "08:00", label: "08h00" },
-  { value: "09:00", label: "09h00" },
-  { value: "10:00", label: "10h00" },
-  { value: "12:00", label: "12h00" },
-  { value: "14:00", label: "14h00" },
-  { value: "16:00", label: "16h00" },
-  { value: "18:00", label: "18h00" },
-]
 
 const previewDaysAhead = 30
 
@@ -47,14 +30,6 @@ const previewWedding: Wedding = {
   lastActivity: "",
 }
 
-function mergeTimeSlots(current: string) {
-  const seen = new Set(timeSlots.map((t) => t.value))
-  if (seen.has(current)) return timeSlots
-  return [...timeSlots, { value: current, label: current }].sort((a, b) =>
-    a.value.localeCompare(b.value)
-  )
-}
-
 const variableButtons = [
   "{{prenom}}",
   "{{date_mariage}}",
@@ -67,7 +42,6 @@ const variableButtons = [
 ] as const
 
 export default function AutomatisationsPage() {
-  const [selectedSlot, setSelectedSlot] = useState(DEFAULT_AUTOMATION_SEND_TIME)
   const [subject, setSubject] = useState(DEFAULT_AUTOMATION_SUBJECT)
   const [message, setMessage] = useState(DEFAULT_AUTOMATION_MESSAGE)
   const [saved, setSaved] = useState(false)
@@ -85,7 +59,7 @@ export default function AutomatisationsPage() {
       try {
         const res = await fetch("/api/automations/settings")
         const payload = (await res.json()) as {
-          settings?: { messageTemplate: string; subjectTemplate: string; sendTime: string }
+          settings?: { messageTemplate: string; subjectTemplate: string }
           error?: string
         }
         if (!res.ok) {
@@ -94,7 +68,6 @@ export default function AutomatisationsPage() {
         if (cancelled || !payload.settings) return
         setMessage(payload.settings.messageTemplate)
         setSubject(payload.settings.subjectTemplate)
-        setSelectedSlot(payload.settings.sendTime)
       } catch (e) {
         if (!cancelled) {
           setLoadError(e instanceof Error ? e.message : "Erreur de chargement.")
@@ -123,13 +96,6 @@ export default function AutomatisationsPage() {
     [message, previewVars]
   )
 
-  const slotOptions = useMemo(() => mergeTimeSlots(selectedSlot), [selectedSlot])
-
-  const selectedSlotLabel = useMemo(
-    () => timeSlots.find((slot) => slot.value === selectedSlot)?.label ?? selectedSlot,
-    [selectedSlot]
-  )
-
   const handleSave = async () => {
     setSaveError("")
     setSaving(true)
@@ -140,11 +106,10 @@ export default function AutomatisationsPage() {
         body: JSON.stringify({
           messageTemplate: message,
           subjectTemplate: subject,
-          sendTime: selectedSlot,
         }),
       })
       const payload = (await response.json()) as {
-        settings?: { messageTemplate: string; subjectTemplate: string; sendTime: string }
+        settings?: { messageTemplate: string; subjectTemplate: string }
         error?: string
       }
       if (!response.ok) {
@@ -153,7 +118,6 @@ export default function AutomatisationsPage() {
       if (payload.settings) {
         setMessage(payload.settings.messageTemplate)
         setSubject(payload.settings.subjectTemplate)
-        setSelectedSlot(payload.settings.sendTime)
       }
       setSaved(true)
       setTimeout(() => setSaved(false), 2500)
@@ -213,8 +177,9 @@ export default function AutomatisationsPage() {
           <header className="space-y-2">
             <h1 className="text-2xl font-semibold text-gray-900">Automatisations</h1>
             <p className="text-sm text-gray-500">
-              Definissez quand les e-mails automatiques partent et personnalisez le contenu du
-              message envoye aux futurs maries.
+              Personnalisez l&apos;e-mail de relance envoye chaque jour a{" "}
+              {FIXED_AUTOMATION_SEND_TIME.replace(":", "h")}
+              (heure de Paris, non modifiable). Une seule serie d&apos;envois par jour.
             </p>
           </header>
 
@@ -223,39 +188,6 @@ export default function AutomatisationsPage() {
               {loadError}
             </p>
           ) : null}
-
-          <Card className="bg-white border-gray-100 shadow-sm">
-            <CardHeader>
-              <CardTitle>Reglage des envois automatiques</CardTitle>
-              <CardDescription>
-                Creneau quotidien d&apos;envoi (heure de Paris par defaut). Le serveur verifie
-                toutes les 10 minutes et envoie une seule fois par jour a l&apos;heure choisie.
-              </CardDescription>
-            </CardHeader>
-            <CardContent className="space-y-5">
-              <div className="space-y-2">
-                <label htmlFor="mail-time-slot" className="text-sm font-medium text-gray-800">
-                  Creneau d&apos;envoi
-                </label>
-                <Select
-                  value={selectedSlot}
-                  onValueChange={setSelectedSlot}
-                  disabled={loading}
-                >
-                  <SelectTrigger id="mail-time-slot" className="w-full sm:w-[260px]">
-                    <SelectValue placeholder="Choisir un creneau" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {slotOptions.map((slot) => (
-                      <SelectItem key={slot.value} value={slot.value}>
-                        {slot.label}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
-            </CardContent>
-          </Card>
 
           <Card className="bg-white border-gray-100 shadow-sm">
             <CardHeader>
@@ -318,10 +250,6 @@ export default function AutomatisationsPage() {
                 {saved && <span className="text-sm text-emerald-600">Enregistre avec succes.</span>}
               </div>
               {saveError ? <p className="text-sm text-red-600">{saveError}</p> : null}
-              <p className="text-xs text-gray-500">
-                Envoi programme tous les jours a {selectedSlotLabel} (configure le declencheur
-                externe, ex. cron, sur cette heure).
-              </p>
             </CardContent>
           </Card>
         </div>

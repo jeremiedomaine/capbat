@@ -4,7 +4,7 @@
   "crons": [
     {
       "path": "/api/automations/deposit-reminder",
-      "schedule": "0 8 * * *"
+      "schedule": "0 * * * *"
     }
   ]
 }
