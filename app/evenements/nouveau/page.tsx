@@ -3,11 +3,14 @@
 import Link from "next/link"
 import { useState } from "react"
 import { useRouter } from "next/navigation"
+import { Loader2 } from "lucide-react"
+import { toast } from "sonner"
 import { Sidebar } from "@/components/sidebar"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Input } from "@/components/ui/input"
 import { Switch } from "@/components/ui/switch"
 import { Button } from "@/components/ui/button"
+import { validateNewWeddingInput } from "@/lib/form-validation"
 
 export default function NewEventPage() {
   const router = useRouter()
@@ -25,6 +28,21 @@ export default function NewEventPage() {
   const handleSubmit = async (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault()
     setError("")
+    const validationError = validateNewWeddingInput({
+      couple,
+      contactName,
+      email,
+      phone,
+      eventDate,
+      depositAmount,
+      balanceAmount,
+    })
+    if (validationError) {
+      setError(validationError)
+      toast.error("Vérifiez le formulaire", { description: validationError })
+      return
+    }
+
     setIsSubmitting(true)
 
     try {
@@ -32,10 +50,10 @@ export default function NewEventPage() {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          couple,
-          contactName,
-          email,
-          phone,
+          couple: couple.trim(),
+          contactName: contactName.trim(),
+          email: email.trim(),
+          phone: phone.trim(),
           eventDate,
           depositAmount,
           balanceAmount,
@@ -45,14 +63,21 @@ export default function NewEventPage() {
 
       if (!response.ok) {
         const payload = (await response.json()) as { error?: string }
-        setError(payload.error ?? "Impossible de créer l'événement.")
+        const msg = payload.error ?? "Impossible de créer l'événement."
+        setError(msg)
+        toast.error("Création impossible", { description: msg })
         return
       }
 
+      toast.success("Événement créé", {
+        description: "Il apparaît dans votre planning.",
+      })
       router.push("/evenements")
       router.refresh()
     } catch {
-      setError("Une erreur réseau est survenue. Veuillez réessayer.")
+      const msg = "Une erreur réseau est survenue. Veuillez réessayer."
+      setError(msg)
+      toast.error("Erreur réseau", { description: msg })
     } finally {
       setIsSubmitting(false)
     }
@@ -165,9 +190,16 @@ export default function NewEventPage() {
 
                 <div className="flex items-center gap-3">
                   <Button type="submit" disabled={isSubmitting}>
-                    {isSubmitting ? "Création..." : "Créer l'événement"}
+                    {isSubmitting ? (
+                      <>
+                        <Loader2 className="mr-2 h-4 w-4 animate-spin" aria-hidden />
+                        Création…
+                      </>
+                    ) : (
+                      "Créer l'événement"
+                    )}
                   </Button>
-                  <Button asChild type="button" variant="outline">
+                  <Button asChild type="button" variant="outline" disabled={isSubmitting}>
                     <Link href="/evenements">Annuler</Link>
                   </Button>
                 </div>

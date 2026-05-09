@@ -1,6 +1,8 @@
 "use client"
 
 import { useEffect, useState } from "react"
+import { Loader2 } from "lucide-react"
+import { toast } from "sonner"
 import { useRouter } from "next/navigation"
 import Link from "next/link"
 import { createClient } from "@/lib/supabase/client"
@@ -59,10 +61,14 @@ export default function UpdatePasswordPage() {
       const { error: updateError } = await supabase.auth.updateUser({ password })
 
       if (updateError) {
-        setError("Impossible de mettre à jour le mot de passe. Le lien est peut-être expiré.")
+        const msg =
+          "Impossible de mettre à jour le mot de passe. Le lien est peut-être expiré."
+        setError(msg)
+        toast.error("Mise à jour impossible", { description: msg })
         return
       }
 
+      toast.success("Mot de passe mis à jour")
       await supabase.auth.signOut()
       router.push("/login?reset=ok")
       router.refresh()
@@ -120,7 +126,14 @@ export default function UpdatePasswordPage() {
               </div>
               {error ? <p className="text-sm text-red-600">{error}</p> : null}
               <Button type="submit" className="w-full" disabled={loading}>
-                {loading ? "Enregistrement…" : "Enregistrer"}
+                {loading ? (
+                  <>
+                    <Loader2 className="mr-2 h-4 w-4 animate-spin" aria-hidden />
+                    Enregistrement…
+                  </>
+                ) : (
+                  "Enregistrer"
+                )}
               </Button>
             </form>
           )}

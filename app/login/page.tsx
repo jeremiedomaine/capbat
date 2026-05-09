@@ -7,6 +7,8 @@ import { createClient } from "@/lib/supabase/client"
 import { getPublicAppName, getPublicAuthIntro } from "@/lib/branding-public"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Input } from "@/components/ui/input"
+import { Loader2 } from "lucide-react"
+import { toast } from "sonner"
 import { Button } from "@/components/ui/button"
 
 function LoginForm() {
@@ -34,15 +36,20 @@ function LoginForm() {
 
       if (signError) {
         setError("Email ou mot de passe incorrect.")
+        toast.error("Connexion refusée", {
+          description: "Vérifiez l’e-mail et le mot de passe.",
+        })
         return
       }
 
+      toast.success("Connexion réussie")
       router.push(next.startsWith("/") ? next : "/")
       router.refresh()
     } catch (err) {
       const message =
         err instanceof Error ? err.message : "Impossible de se connecter. Réessayez plus tard."
       setError(message)
+      toast.error("Erreur", { description: message })
     } finally {
       setLoading(false)
     }
@@ -97,7 +104,14 @@ function LoginForm() {
           </div>
           {error ? <p className="text-sm text-red-600">{error}</p> : null}
           <Button type="submit" className="w-full" disabled={loading}>
-            {loading ? "Connexion…" : "Se connecter"}
+            {loading ? (
+              <>
+                <Loader2 className="mr-2 h-4 w-4 animate-spin" aria-hidden />
+                Connexion…
+              </>
+            ) : (
+              "Se connecter"
+            )}
           </Button>
         </form>
         <p className="mt-4 text-xs text-gray-400">

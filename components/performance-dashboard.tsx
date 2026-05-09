@@ -1,6 +1,9 @@
 "use client"
 
 import { useCallback, useEffect, useMemo, useState } from "react"
+import Link from "next/link"
+import { BarChart3, Loader2 } from "lucide-react"
+import { toast } from "sonner"
 import {
   Bar,
   BarChart,
@@ -14,6 +17,8 @@ import {
   YAxis,
 } from "recharts"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
+import { Button } from "@/components/ui/button"
+import { EmptyState } from "@/components/empty-state"
 import {
   ChartContainer,
   ChartLegend,
@@ -37,11 +42,29 @@ type MonthKey = `${number}-${string}`
 
 export function PerformanceDashboard() {
   const [rows, setRows] = useState<WeddingRow[]>([])
+  const [loading, setLoading] = useState(true)
 
   const loadWeddings = useCallback(async () => {
-    const response = await fetch("/api/weddings")
-    const payload = (await response.json()) as { weddings: WeddingRow[] }
-    setRows(payload.weddings ?? [])
+    try {
+      const response = await fetch("/api/weddings", { credentials: "same-origin" })
+      const payload = (await response.json()) as {
+        weddings?: WeddingRow[]
+        error?: string
+      }
+      if (!response.ok) {
+        setRows([])
+        toast.error("Données indisponibles", {
+          description: payload.error ?? `Erreur ${response.status}`,
+        })
+        return
+      }
+      setRows(payload.weddings ?? [])
+    } catch {
+      setRows([])
+      toast.error("Réseau", { description: "Impossible de charger les indicateurs." })
+    } finally {
+      setLoading(false)
+    }
   }, [])
 
   useEffect(() => {
@@ -137,6 +160,29 @@ export function PerformanceDashboard() {
       }) satisfies ChartConfig,
     []
   )
+
+  if (loading) {
+    return (
+      <div className="flex flex-col items-center justify-center gap-3 rounded-xl border border-gray-100 bg-white py-24 text-gray-500 shadow-sm">
+        <Loader2 className="h-10 w-10 animate-spin text-gray-400" aria-hidden />
+        <p className="text-sm">Chargement des indicateurs…</p>
+      </div>
+    )
+  }
+
+  if (rows.length === 0) {
+    return (
+      <EmptyState
+        icon={BarChart3}
+        title="Pas encore de données"
+        description="Ajoutez des mariages avec montants et statuts pour voir la prévision, l’encaissement et la répartition des soldes."
+      >
+        <Button asChild className="bg-emerald-600 hover:bg-emerald-700">
+          <Link href="/evenements/nouveau">Ajouter un événement</Link>
+        </Button>
+      </EmptyState>
+    )
+  }
 
   return (
     <div className="space-y-6">

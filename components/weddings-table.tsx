@@ -1,7 +1,9 @@
 "use client"
 
 import { useCallback, useEffect, useMemo, useState } from "react"
-import { Pencil } from "lucide-react"
+import Link from "next/link"
+import { CalendarPlus, Loader2, Pencil } from "lucide-react"
+import { toast } from "sonner"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
 import { Switch } from "@/components/ui/switch"
@@ -22,6 +24,16 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog"
 import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog"
+import {
   Table,
   TableBody,
   TableCell,
@@ -29,6 +41,8 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table"
+import { EmptyState } from "@/components/empty-state"
+import { validateEditWeddingInput } from "@/lib/form-validation"
 
 type WeddingRow = {
   id: number
@@ -45,6 +59,10 @@ type WeddingRow = {
 
 type PaymentStatus = "pending" | "paid" | "to_collect"
 
+type PendingOp =
+  | { rowId: number; kind: "deposit" | "balance" | "autopilot" }
+  | null
+
 export function WeddingsTable() {
   const [rows, setRows] = useState<WeddingRow[]>([])
   const [loading, setLoading] = useState(true)
@@ -59,6 +77,8 @@ export function WeddingsTable() {
   const [editSubmitting, setEditSubmitting] = useState(false)
   const [deleteSubmitting, setDeleteSubmitting] = useState(false)
   const [loadError, setLoadError] = useState("")
+  const [pendingOp, setPendingOp] = useState<PendingOp>(null)
+  const [confirmDeleteOpen, setConfirmDeleteOpen] = useState(false)
 
   const refreshRows = useCallback(async () => {
     setLoadError("")
@@ -76,8 +96,10 @@ export function WeddingsTable() {
             : response.status === 401
               ? " Session expirée : reconnecte-toi."
               : ""
+        const msg = (payload.error ?? `Erreur ${response.status}`) + hint
         setRows([])
-        setLoadError((payload.error ?? `Erreur ${response.status}`) + hint)
+        setLoadError(msg)
+        toast.error("Impossible de charger les événements", { description: msg.slice(0, 200) })
         return
       }
 
@@ -85,24 +107,36 @@ export function WeddingsTable() {
     } catch {
       setRows([])
       setLoadError("Impossible de joindre le serveur.")
+      toast.error("Réseau indisponible", {
+        description: "Impossible de charger les événements.",
+      })
     } finally {
       setLoading(false)
     }
   }, [])
 
   const toggleAutopilot = async (id: number, autopilot: boolean) => {
+    setPendingOp({ rowId: id, kind: "autopilot" })
     try {
       const response = await fetch(`/api/weddings/${id}/autopilot`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ autopilot }),
       })
-      if (!response.ok) throw new Error("autopilot update failed")
+      if (!response.ok) {
+        const payload = (await response.json().catch(() => ({}))) as { error?: string }
+        throw new Error(payload.error ?? "Mise à jour impossible.")
+      }
       const payload = (await response.json()) as { wedding: WeddingRow }
       setRows((prev) => prev.map((row) => (row.id === id ? payload.wedding : row)))
       window.dispatchEvent(new Event("weddings-updated"))
-    } catch {
-      // Keep UI unchanged on failure.
+      toast.success(autopilot ? "Relance automatique activée" : "Relance automatique désactivée")
+    } catch (e) {
+      toast.error("Échec de la mise à jour", {
+        description: e instanceof Error ? e.message : "Réessayez dans un instant.",
+      })
+    } finally {
+      setPendingOp(null)
     }
   }
 
@@ -120,6 +154,7 @@ export function WeddingsTable() {
     field: "deposit" | "balance",
     status: PaymentStatus
   ) => {
+    setPendingOp({ rowId: weddingId, kind: field })
     try {
       const response = await fetch(`/api/weddings/${weddingId}/status`, {
         method: "PATCH",
@@ -127,158 +162,206 @@ export function WeddingsTable() {
         body: JSON.stringify({ field, status }),
       })
 
-      if (!response.ok) throw new Error("status update failed")
+      if (!response.ok) {
+        const payload = (await response.json().catch(() => ({}))) as { error?: string }
+        throw new Error(payload.error ?? "Mise à jour impossible.")
+      }
       const payload = (await response.json()) as { wedding: WeddingRow }
       setRows((prev) =>
         prev.map((row) => (row.id === weddingId ? payload.wedding : row))
       )
       window.dispatchEvent(new Event("weddings-updated"))
-    } catch {
-      // No optimistic update: keep previous state when request fails.
+      toast.success(
+        field === "deposit" ? "Statut acompte mis à jour" : "Statut solde mis à jour"
+      )
+    } catch (e) {
+      toast.error("Échec du statut", {
+        description: e instanceof Error ? e.message : "Réessayez dans un instant.",
+      })
+    } finally {
+      setPendingOp(null)
     }
   }
 
+  const showEmpty = !loading && !loadError && sortedRows.length === 0
+
   return (
-    <Card className="bg-white border-gray-100 shadow-sm">
-      <CardHeader className="px-6 pt-6 pb-4 border-b border-gray-50">
-        <div className="flex items-center justify-between">
-          <div>
-            <CardTitle className="text-base font-semibold text-gray-900">
-              Prochains Mariages
-            </CardTitle>
-            <p className="text-sm text-gray-400 mt-0.5">
-              {loading ? "Chargement..." : `${sortedRows.length} événements planifiés`}
-            </p>
+    <>
+      <Card className="bg-white border-gray-100 shadow-sm">
+        <CardHeader className="px-6 pt-6 pb-4 border-b border-gray-50">
+          <div className="flex items-center justify-between">
+            <div>
+              <CardTitle className="text-base font-semibold text-gray-900">
+                Prochains Mariages
+              </CardTitle>
+              <p className="text-sm text-gray-400 mt-0.5">
+                {loading ? "Chargement..." : `${sortedRows.length} événements planifiés`}
+              </p>
+            </div>
+            <Badge variant="outline" className="text-xs text-gray-500 border-gray-200">
+              2026
+            </Badge>
           </div>
-          <Badge variant="outline" className="text-xs text-gray-500 border-gray-200">
-            2026
-          </Badge>
-        </div>
-      </CardHeader>
-      <CardContent className="p-0">
-        {loadError ? (
-          <div className="mx-6 mt-4 mb-2 rounded-lg border border-red-100 bg-red-50 px-4 py-3 text-sm text-red-800">
-            <p className="font-medium">Données non chargées</p>
-            <p className="mt-1 text-red-700">{loadError}</p>
-            <p className="mt-2 text-xs text-red-600">
-              Dans Vercel → Settings → Environment Variables : pour chaque variable, coche{" "}
-              <strong>Production</strong> (pas seulement Preview). Ajoute{" "}
-              <strong>NEXT_PUBLIC_SUPABASE_URL</strong>{" "}
-              <span className="opacity-90">
-                (ou duplique la même URL en <strong>SUPABASE_URL</strong> côté serveur)
-              </span>
-              , plus <strong>SUPABASE_SERVICE_ROLE_KEY</strong> (secret service_role). Optionnel :{" "}
-              <strong>SUPABASE_RESERVATIONS_TABLE</strong>. Puis Redeploy.
-            </p>
-          </div>
-        ) : null}
-        <Table>
-          <TableHeader>
-            <TableRow className="border-gray-50 hover:bg-transparent">
-              <TableHead className="px-6 py-3.5 text-xs font-medium text-gray-400 uppercase tracking-wider">
-                Mariés
-              </TableHead>
-              <TableHead className="px-4 py-3.5 text-xs font-medium text-gray-400 uppercase tracking-wider">
-                Acompte
-              </TableHead>
-              <TableHead className="px-4 py-3.5 text-xs font-medium text-gray-400 uppercase tracking-wider">
-                Solde
-              </TableHead>
-              <TableHead className="px-4 py-3.5 text-xs font-medium text-gray-400 uppercase tracking-wider">
-                Relance auto
-              </TableHead>
-              <TableHead className="px-6 py-3.5 text-xs font-medium text-gray-400 uppercase tracking-wider">
-                Dernière Activité
-              </TableHead>
-              <TableHead className="px-6 py-3.5 text-xs font-medium text-gray-400 uppercase tracking-wider text-right">
-                Actions
-              </TableHead>
-            </TableRow>
-          </TableHeader>
-          <TableBody>
-            {sortedRows.map((row, idx) => (
-              <TableRow
-                key={row.id}
-                className={`border-gray-50 transition-colors hover:bg-gray-50/60 ${
-                  idx !== sortedRows.length - 1 ? "border-b" : ""
-                }`}
+        </CardHeader>
+        <CardContent className="p-0">
+          {loadError ? (
+            <div className="mx-6 mt-4 mb-2 rounded-lg border border-red-100 bg-red-50 px-4 py-3 text-sm text-red-800">
+              <p className="font-medium">Données non chargées</p>
+              <p className="mt-1 text-red-700">{loadError}</p>
+              <p className="mt-2 text-xs text-red-600">
+                Dans Vercel → Settings → Environment Variables : pour chaque variable, coche{" "}
+                <strong>Production</strong> (pas seulement Preview). Ajoute{" "}
+                <strong>NEXT_PUBLIC_SUPABASE_URL</strong>{" "}
+                <span className="opacity-90">
+                  (ou duplique la même URL en <strong>SUPABASE_URL</strong> côté serveur)
+                </span>
+                , plus <strong>SUPABASE_SERVICE_ROLE_KEY</strong> (secret service_role). Optionnel :{" "}
+                <strong>SUPABASE_RESERVATIONS_TABLE</strong>. Puis Redeploy.
+              </p>
+            </div>
+          ) : null}
+
+          {loading && sortedRows.length === 0 && !loadError ? (
+            <div className="flex flex-col items-center justify-center gap-3 py-16 text-gray-500">
+              <Loader2 className="h-8 w-8 animate-spin text-gray-400" aria-hidden />
+              <p className="text-sm">Chargement des événements…</p>
+            </div>
+          ) : null}
+
+          {showEmpty ? (
+            <div className="p-6">
+              <EmptyState
+                icon={CalendarPlus}
+                title="Aucun mariage enregistré"
+                description="Ajoutez votre premier événement pour voir le planning, les encaissements et les relances automatiques ici."
               >
-                {/* Couple + date */}
-                <TableCell className="px-6 py-4">
-                  <p className="font-semibold text-gray-900 text-sm">{row.couple}</p>
-                  <p className="text-xs text-gray-500 mt-0.5">
-                    Contact: {row.contactName || "—"}
-                  </p>
-                  <p className="text-xs text-gray-500 mt-0.5">{row.email || "—"}</p>
-                  <p className="text-xs text-gray-500">{row.phone || "—"}</p>
-                  <p className="text-xs text-gray-400 mt-0.5">{formatDate(row.eventDate)}</p>
-                </TableCell>
+                <Button asChild className="bg-emerald-600 hover:bg-emerald-700">
+                  <Link href="/evenements/nouveau">Créer un événement</Link>
+                </Button>
+                <Button asChild variant="outline">
+                  <Link href="/evenements">Voir la liste</Link>
+                </Button>
+              </EmptyState>
+            </div>
+          ) : null}
 
-                {/* Deposit */}
-                <TableCell className="px-4 py-4">
-                  <div className="flex items-center gap-2">
-                    <span className="text-sm text-gray-700 font-medium">
-                      {row.deposit.amount}
-                    </span>
-                    <StatusBadge
-                      status={row.deposit.status}
-                      options={["pending", "paid"]}
-                      onSelect={(status) => updatePaymentStatus(row.id, "deposit", status)}
-                    />
-                  </div>
-                </TableCell>
-
-                {/* Balance */}
-                <TableCell className="px-4 py-4">
-                  <div className="flex items-center gap-2">
-                    <span className="text-sm text-gray-700 font-medium">
-                      {row.balance.amount}
-                    </span>
-                    <StatusBadge
-                      status={row.balance.status}
-                      options={["pending", "paid", "to_collect"]}
-                      onSelect={(status) => updatePaymentStatus(row.id, "balance", status)}
-                    />
-                  </div>
-                </TableCell>
-
-                {/* Autopilot Switch */}
-                <TableCell className="px-4 py-4">
-                  <div className="flex items-center gap-2.5">
-                    <Switch
-                      checked={row.autopilot}
-                      onCheckedChange={(checked) => toggleAutopilot(row.id, checked)}
-                      className="data-[state=checked]:bg-emerald-500"
-                      aria-label={`Pilote automatique pour ${row.couple}`}
-                    />
-                    <span className="text-xs text-gray-400">
-                      {row.autopilot ? "Actif" : "Inactif"}
-                    </span>
-                  </div>
-                </TableCell>
-
-                {/* Last Activity */}
-                <TableCell className="px-6 py-4">
-                  <span className="text-sm text-gray-400">{row.lastActivity}</span>
-                </TableCell>
-                <TableCell className="px-6 py-4 text-right">
-                  <Button
-                    variant="outline"
-                    size="icon"
-                    className="w-8 h-8"
-                    onClick={() => openEditDialog(row)}
-                    aria-label={`Modifier ${row.couple}`}
+          {!loading && !showEmpty && !loadError ? (
+            <Table>
+              <TableHeader>
+                <TableRow className="border-gray-50 hover:bg-transparent">
+                  <TableHead className="px-6 py-3.5 text-xs font-medium text-gray-400 uppercase tracking-wider">
+                    Mariés
+                  </TableHead>
+                  <TableHead className="px-4 py-3.5 text-xs font-medium text-gray-400 uppercase tracking-wider">
+                    Acompte
+                  </TableHead>
+                  <TableHead className="px-4 py-3.5 text-xs font-medium text-gray-400 uppercase tracking-wider">
+                    Solde
+                  </TableHead>
+                  <TableHead className="px-4 py-3.5 text-xs font-medium text-gray-400 uppercase tracking-wider">
+                    Relance auto
+                  </TableHead>
+                  <TableHead className="px-6 py-3.5 text-xs font-medium text-gray-400 uppercase tracking-wider">
+                    Dernière Activité
+                  </TableHead>
+                  <TableHead className="px-6 py-3.5 text-xs font-medium text-gray-400 uppercase tracking-wider text-right">
+                    Actions
+                  </TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {sortedRows.map((row, idx) => (
+                  <TableRow
+                    key={row.id}
+                    className={`border-gray-50 transition-colors hover:bg-gray-50/60 ${
+                      idx !== sortedRows.length - 1 ? "border-b" : ""
+                    }`}
                   >
-                    <Pencil className="w-4 h-4" />
-                  </Button>
-                </TableCell>
-              </TableRow>
-            ))}
-          </TableBody>
-        </Table>
-      </CardContent>
+                    <TableCell className="px-6 py-4">
+                      <p className="font-semibold text-gray-900 text-sm">{row.couple}</p>
+                      <p className="text-xs text-gray-500 mt-0.5">
+                        Contact: {row.contactName || "—"}
+                      </p>
+                      <p className="text-xs text-gray-500 mt-0.5">{row.email || "—"}</p>
+                      <p className="text-xs text-gray-500">{row.phone || "—"}</p>
+                      <p className="text-xs text-gray-400 mt-0.5">{formatDate(row.eventDate)}</p>
+                    </TableCell>
+
+                    <TableCell className="px-4 py-4">
+                      <div className="flex items-center gap-2">
+                        <span className="text-sm text-gray-700 font-medium">
+                          {row.deposit.amount}
+                        </span>
+                        <StatusBadge
+                          status={row.deposit.status}
+                          options={["pending", "paid"]}
+                          disabled={Boolean(pendingOp?.rowId === row.id && pendingOp.kind === "deposit")}
+                          onSelect={(status) => updatePaymentStatus(row.id, "deposit", status)}
+                        />
+                      </div>
+                    </TableCell>
+
+                    <TableCell className="px-4 py-4">
+                      <div className="flex items-center gap-2">
+                        <span className="text-sm text-gray-700 font-medium">
+                          {row.balance.amount}
+                        </span>
+                        <StatusBadge
+                          status={row.balance.status}
+                          options={["pending", "paid", "to_collect"]}
+                          disabled={Boolean(pendingOp?.rowId === row.id && pendingOp.kind === "balance")}
+                          onSelect={(status) => updatePaymentStatus(row.id, "balance", status)}
+                        />
+                      </div>
+                    </TableCell>
+
+                    <TableCell className="px-4 py-4">
+                      <div className="flex items-center gap-2.5">
+                        <Switch
+                          checked={row.autopilot}
+                          disabled={
+                            pendingOp?.rowId === row.id && pendingOp.kind === "autopilot"
+                          }
+                          onCheckedChange={(checked) => toggleAutopilot(row.id, checked)}
+                          className="data-[state=checked]:bg-emerald-500"
+                          aria-label={`Pilote automatique pour ${row.couple}`}
+                        />
+                        <span className="text-xs text-gray-400">
+                          {pendingOp?.rowId === row.id && pendingOp.kind === "autopilot" ? (
+                            <Loader2 className="inline h-3.5 w-3.5 animate-spin" aria-hidden />
+                          ) : row.autopilot ? (
+                            "Actif"
+                          ) : (
+                            "Inactif"
+                          )}
+                        </span>
+                      </div>
+                    </TableCell>
+
+                    <TableCell className="px-6 py-4">
+                      <span className="text-sm text-gray-400">{row.lastActivity}</span>
+                    </TableCell>
+                    <TableCell className="px-6 py-4 text-right">
+                      <Button
+                        variant="outline"
+                        size="icon"
+                        className="w-8 h-8"
+                        onClick={() => openEditDialog(row)}
+                        aria-label={`Modifier ${row.couple}`}
+                      >
+                        <Pencil className="w-4 h-4" />
+                      </Button>
+                    </TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          ) : null}
+        </CardContent>
+      </Card>
+
       <Dialog open={Boolean(editingRow)} onOpenChange={(open) => !open && closeEditDialog()}>
-        <DialogContent>
+        <DialogContent className="max-h-[90vh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle>Modifier l&apos;événement</DialogTitle>
             <DialogDescription>
@@ -329,6 +412,7 @@ export function WeddingsTable() {
                 <Input
                   type="number"
                   min="0"
+                  step="0.01"
                   value={editDepositAmount}
                   onChange={(event) => setEditDepositAmount(event.target.value)}
                 />
@@ -338,32 +422,73 @@ export function WeddingsTable() {
                 <Input
                   type="number"
                   min="0"
+                  step="0.01"
                   value={editBalanceAmount}
                   onChange={(event) => setEditBalanceAmount(event.target.value)}
                 />
               </div>
             </div>
           </div>
-          <DialogFooter className="sm:justify-between">
+          <DialogFooter className="sm:justify-between gap-2 flex-col sm:flex-row">
             <Button
+              type="button"
               variant="destructive"
-              onClick={handleDeleteRow}
+              onClick={() => setConfirmDeleteOpen(true)}
               disabled={deleteSubmitting || editSubmitting}
             >
-              {deleteSubmitting ? "Suppression..." : "Supprimer la ligne"}
+              Supprimer la ligne
             </Button>
-            <div className="flex items-center gap-2">
+            <div className="flex items-center gap-2 justify-end w-full sm:w-auto">
               <Button variant="outline" onClick={closeEditDialog} disabled={editSubmitting}>
                 Annuler
               </Button>
-              <Button onClick={handleSaveEdit} disabled={editSubmitting || deleteSubmitting}>
-                {editSubmitting ? "Enregistrement..." : "Enregistrer"}
+              <Button onClick={() => void handleSaveEdit()} disabled={editSubmitting || deleteSubmitting}>
+                {editSubmitting ? (
+                  <>
+                    <Loader2 className="mr-2 h-4 w-4 animate-spin" aria-hidden />
+                    Enregistrement…
+                  </>
+                ) : (
+                  "Enregistrer"
+                )}
               </Button>
             </div>
           </DialogFooter>
         </DialogContent>
       </Dialog>
-    </Card>
+
+      <AlertDialog open={confirmDeleteOpen} onOpenChange={setConfirmDeleteOpen}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Supprimer cet événement ?</AlertDialogTitle>
+            <AlertDialogDescription>
+              Cette action est définitive : la ligne sera retirée de votre planning et de Supabase.
+              Les relances automatiques associées ne s&apos;appliqueront plus à ce dossier.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={deleteSubmitting}>Annuler</AlertDialogCancel>
+            <AlertDialogAction
+              className="bg-red-600 hover:bg-red-700 focus:ring-red-600"
+              disabled={deleteSubmitting}
+              onClick={(e) => {
+                e.preventDefault()
+                void executeDelete()
+              }}
+            >
+              {deleteSubmitting ? (
+                <>
+                  <Loader2 className="mr-2 h-4 w-4 animate-spin inline" aria-hidden />
+                  Suppression…
+                </>
+              ) : (
+                "Supprimer définitivement"
+              )}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+    </>
   )
 
   function openEditDialog(row: WeddingRow) {
@@ -372,7 +497,7 @@ export function WeddingsTable() {
     setEditContactName(row.contactName)
     setEditEmail(row.email)
     setEditPhone(row.phone)
-    setEditEventDate(row.eventDate)
+    setEditEventDate(row.eventDate.slice(0, 10))
     setEditDepositAmount(extractNumericAmount(row.deposit.amount))
     setEditBalanceAmount(extractNumericAmount(row.balance.amount))
   }
@@ -380,45 +505,77 @@ export function WeddingsTable() {
   function closeEditDialog() {
     if (editSubmitting || deleteSubmitting) return
     setEditingRow(null)
+    setConfirmDeleteOpen(false)
   }
 
   async function handleSaveEdit() {
     if (!editingRow) return
+    const err = validateEditWeddingInput({
+      couple: editCouple,
+      contactName: editContactName,
+      email: editEmail,
+      phone: editPhone,
+      eventDate: editEventDate,
+      depositAmount: editDepositAmount,
+      balanceAmount: editBalanceAmount,
+    })
+    if (err) {
+      toast.error("Formulaire incomplet", { description: err })
+      return
+    }
+
     setEditSubmitting(true)
     try {
       const response = await fetch(`/api/weddings/${editingRow.id}`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          couple: editCouple,
-          contactName: editContactName,
-          email: editEmail,
-          phone: editPhone,
+          couple: editCouple.trim(),
+          contactName: editContactName.trim(),
+          email: editEmail.trim(),
+          phone: editPhone.trim(),
           eventDate: editEventDate,
           depositAmount: editDepositAmount,
           balanceAmount: editBalanceAmount,
         }),
       })
-      if (!response.ok) throw new Error("edit failed")
+      if (!response.ok) {
+        const payload = (await response.json().catch(() => ({}))) as { error?: string }
+        throw new Error(payload.error ?? "Enregistrement impossible.")
+      }
       await refreshRows()
       setEditingRow(null)
       window.dispatchEvent(new Event("weddings-updated"))
+      toast.success("Événement mis à jour")
+    } catch (e) {
+      toast.error("Échec de l’enregistrement", {
+        description: e instanceof Error ? e.message : "Réessayez dans un instant.",
+      })
     } finally {
       setEditSubmitting(false)
     }
   }
 
-  async function handleDeleteRow() {
+  async function executeDelete() {
     if (!editingRow) return
     setDeleteSubmitting(true)
     try {
       const response = await fetch(`/api/weddings/${editingRow.id}`, {
         method: "DELETE",
       })
-      if (!response.ok) throw new Error("delete failed")
+      if (!response.ok) {
+        const payload = (await response.json().catch(() => ({}))) as { error?: string }
+        throw new Error(payload.error ?? "Suppression impossible.")
+      }
       setRows((prev) => prev.filter((row) => row.id !== editingRow.id))
       setEditingRow(null)
+      setConfirmDeleteOpen(false)
       window.dispatchEvent(new Event("weddings-updated"))
+      toast.success("Événement supprimé")
+    } catch (e) {
+      toast.error("Suppression impossible", {
+        description: e instanceof Error ? e.message : "Réessayez dans un instant.",
+      })
     } finally {
       setDeleteSubmitting(false)
     }
@@ -428,17 +585,22 @@ export function WeddingsTable() {
 type StatusBadgeProps = {
   status: PaymentStatus
   options: PaymentStatus[]
+  disabled?: boolean
   onSelect: (status: PaymentStatus) => void
 }
 
-function StatusBadge({ status, options, onSelect }: StatusBadgeProps) {
+function StatusBadge({ status, options, disabled, onSelect }: StatusBadgeProps) {
   const label = getStatusLabel(status)
   const className = getStatusClassName(status)
 
   return (
     <DropdownMenu>
       <DropdownMenuTrigger asChild>
-        <button type="button" className="focus:outline-none">
+        <button
+          type="button"
+          disabled={disabled}
+          className="focus:outline-none disabled:pointer-events-none disabled:opacity-50"
+        >
           <Badge className={`${className} border-0 text-xs font-medium px-2`}>{label}</Badge>
         </button>
       </DropdownMenuTrigger>

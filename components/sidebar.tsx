@@ -3,7 +3,8 @@
 import { useEffect, useMemo, useState } from "react"
 import Link from "next/link"
 import { usePathname } from "next/navigation"
-import { LayoutDashboard, LineChart, CalendarHeart, Zap, Settings, LogOut } from "lucide-react"
+import { LayoutDashboard, LineChart, CalendarHeart, Zap, Settings, LogOut, Loader2 } from "lucide-react"
+import { toast } from "sonner"
 import { createClient } from "@/lib/supabase/client"
 import { cn } from "@/lib/utils"
 import { getPublicAppName } from "@/lib/branding-public"
@@ -25,6 +26,7 @@ export function Sidebar() {
   const pathname = usePathname()
   const [managerName, setManagerName] = useState("Marie Clément")
   const [companyName, setCompanyName] = useState("Domaine des Roses")
+  const [logoutPending, setLogoutPending] = useState(false)
 
   useEffect(() => {
     const applyProfile = () => {
@@ -46,9 +48,22 @@ export function Sidebar() {
   }, [])
 
   const handleLogout = async () => {
-    const supabase = createClient()
-    await supabase.auth.signOut()
-    window.location.href = "/login"
+    setLogoutPending(true)
+    try {
+      const supabase = createClient()
+      const { error } = await supabase.auth.signOut()
+      if (error) {
+        toast.error("Déconnexion impossible", { description: error.message })
+        return
+      }
+      window.location.href = "/login"
+    } catch {
+      toast.error("Déconnexion impossible", {
+        description: "Une erreur réseau est survenue.",
+      })
+    } finally {
+      setLogoutPending(false)
+    }
   }
 
   const managerInitials = useMemo(() => {
@@ -110,9 +125,15 @@ export function Sidebar() {
         <button
           type="button"
           onClick={handleLogout}
-          className="w-full flex items-center gap-2 px-3 py-2 rounded-lg text-sm font-medium text-gray-600 hover:bg-gray-50 hover:text-gray-900 transition-colors"
+          disabled={logoutPending}
+          aria-busy={logoutPending}
+          className="w-full flex items-center gap-2 px-3 py-2 rounded-lg text-sm font-medium text-gray-600 hover:bg-gray-50 hover:text-gray-900 transition-colors disabled:pointer-events-none disabled:opacity-60"
         >
-          <LogOut className="w-4 h-4" />
+          {logoutPending ? (
+            <Loader2 className="w-4 h-4 shrink-0 animate-spin" aria-hidden />
+          ) : (
+            <LogOut className="w-4 h-4 shrink-0" aria-hidden />
+          )}
           Déconnexion
         </button>
         <div className="flex items-center gap-3">

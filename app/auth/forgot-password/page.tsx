@@ -1,6 +1,8 @@
 "use client"
 
 import { useState } from "react"
+import { Loader2 } from "lucide-react"
+import { toast } from "sonner"
 import Link from "next/link"
 import { createClient } from "@/lib/supabase/client"
 import { getPublicAppName } from "@/lib/branding-public"
@@ -26,11 +28,17 @@ export default function ForgotPasswordPage() {
       })
 
       if (resetError) {
-        setError("Impossible d'envoyer l'email. Vérifiez l'adresse ou réessayez plus tard.")
+        const msg =
+          "Impossible d'envoyer l'email. Vérifiez l'adresse ou réessayez plus tard."
+        setError(msg)
+        toast.error("Envoi impossible", { description: msg })
         return
       }
 
       setSent(true)
+      toast.success("Si un compte existe", {
+        description: "Un e-mail de réinitialisation vient d’être envoyé.",
+      })
     } finally {
       setLoading(false)
     }
@@ -73,7 +81,14 @@ export default function ForgotPasswordPage() {
               </div>
               {error ? <p className="text-sm text-red-600">{error}</p> : null}
               <Button type="submit" className="w-full" disabled={loading}>
-                {loading ? "Envoi…" : "Envoyer le lien"}
+                {loading ? (
+                  <>
+                    <Loader2 className="mr-2 h-4 w-4 animate-spin" aria-hidden />
+                    Envoi…
+                  </>
+                ) : (
+                  "Envoyer le lien"
+                )}
               </Button>
             </form>
           )}

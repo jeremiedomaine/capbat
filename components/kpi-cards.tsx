@@ -1,6 +1,7 @@
 "use client"
 
 import { useCallback, useEffect, useMemo, useState } from "react"
+import { toast } from "sonner"
 import { Card, CardContent } from "@/components/ui/card"
 import { CalendarDays, Banknote, BellRing } from "lucide-react"
 
@@ -22,6 +23,9 @@ export function KpiCards() {
       const payload = (await response.json()) as { weddings?: WeddingRow[] }
       if (!response.ok) {
         setRows([])
+        toast.error("Impossible de charger les KPI", {
+          description: "Vérifiez votre connexion ou reconnectez-vous.",
+        })
         return
       }
       setRows(payload.weddings ?? [])

@@ -1,6 +1,7 @@
 "use client"
 
 import { useEffect, useState } from "react"
+import { toast } from "sonner"
 import { Sidebar } from "@/components/sidebar"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Input } from "@/components/ui/input"
@@ -37,10 +38,19 @@ export default function ParametresPage() {
   }, [])
 
   const handleSave = () => {
+    if (!companyName.trim() || !managerName.trim()) {
+      toast.error("Champs obligatoires", {
+        description: "Renseignez au minimum le nom de l’établissement et le responsable.",
+      })
+      return
+    }
     persistManagerName(managerName)
     persistCompanyName(companyName)
     setSaved(true)
     setTimeout(() => setSaved(false), 2500)
+    toast.success("Paramètres enregistrés", {
+      description: "Les informations affichées dans la barre latérale sont à jour.",
+    })
   }
 
   const handleCompanyChange = (value: string) => {

@@ -1,6 +1,8 @@
 "use client"
 
 import { useEffect, useMemo, useRef, useState } from "react"
+import { Loader2 } from "lucide-react"
+import { toast } from "sonner"
 import { Sidebar } from "@/components/sidebar"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Textarea } from "@/components/ui/textarea"
@@ -98,14 +100,29 @@ export default function AutomatisationsPage() {
 
   const handleSave = async () => {
     setSaveError("")
+    const sub = subject.trim()
+    const msg = message.trim()
+    if (!sub) {
+      const err = "L’objet de l’e-mail ne peut pas être vide."
+      setSaveError(err)
+      toast.error("Objet manquant", { description: err })
+      return
+    }
+    if (!msg) {
+      const err = "Le corps du message ne peut pas être vide."
+      setSaveError(err)
+      toast.error("Message manquant", { description: err })
+      return
+    }
+
     setSaving(true)
     try {
       const response = await fetch("/api/automations/settings", {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          messageTemplate: message,
-          subjectTemplate: subject,
+          messageTemplate: msg,
+          subjectTemplate: sub,
         }),
       })
       const payload = (await response.json()) as {
@@ -121,8 +138,13 @@ export default function AutomatisationsPage() {
       }
       setSaved(true)
       setTimeout(() => setSaved(false), 2500)
+      toast.success("Automatisations enregistrées", {
+        description: "Les prochains envois utiliseront ce modèle.",
+      })
     } catch (e) {
-      setSaveError(e instanceof Error ? e.message : "Erreur d'enregistrement.")
+      const m = e instanceof Error ? e.message : "Erreur d'enregistrement."
+      setSaveError(m)
+      toast.error("Enregistrement impossible", { description: m })
     } finally {
       setSaving(false)
     }
@@ -245,7 +267,14 @@ export default function AutomatisationsPage() {
               </div>
               <div className="flex flex-wrap items-center gap-3">
                 <Button onClick={() => void handleSave()} disabled={loading || saving}>
-                  {saving ? "Enregistrement..." : "Enregistrer les automatisations"}
+                  {saving ? (
+                    <>
+                      <Loader2 className="mr-2 h-4 w-4 animate-spin" aria-hidden />
+                      Enregistrement…
+                    </>
+                  ) : (
+                    "Enregistrer les automatisations"
+                  )}
                 </Button>
                 {saved && <span className="text-sm text-emerald-600">Enregistre avec succes.</span>}
               </div>
