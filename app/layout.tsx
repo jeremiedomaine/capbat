@@ -7,7 +7,7 @@ const _geist = Geist({ subsets: ["latin"] });
 const _geistMono = Geist_Mono({ subsets: ["latin"] });
 
 export const metadata: Metadata = {
-  title: 'UpStay — Tableau de bord',
+  title: 'Guestflow — Tableau de bord',
   description: 'Suivi financier et relances automatiques pour gérants de domaines de mariage.',
   generator: 'v0.app',
   icons: {

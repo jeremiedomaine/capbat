@@ -2,7 +2,7 @@
 
 export function getPublicAppName(): string {
   const name = process.env.NEXT_PUBLIC_APP_NAME?.trim()
-  return name && name.length > 0 ? name : "UpStay"
+  return name && name.length > 0 ? name : "Guestflow"
 }
 
 /** Texte sous le titre « Connexion » sur la page de login. */

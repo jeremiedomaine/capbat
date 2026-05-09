@@ -6,6 +6,12 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Input } from "@/components/ui/input"
 import { Switch } from "@/components/ui/switch"
 import { Button } from "@/components/ui/button"
+import {
+  getStoredCompanyName,
+  getStoredManagerName,
+  setStoredCompanyName,
+  setStoredManagerName,
+} from "@/lib/profile-local-storage"
 
 export default function ParametresPage() {
   const [companyName, setCompanyName] = useState("Domaine des Roses")
@@ -20,8 +26,8 @@ export default function ParametresPage() {
   const [saved, setSaved] = useState(false)
 
   useEffect(() => {
-    const managerFromStorage = window.localStorage.getItem("upstay_manager_name")
-    const companyFromStorage = window.localStorage.getItem("upstay_company_name")
+    const managerFromStorage = getStoredManagerName()
+    const companyFromStorage = getStoredCompanyName()
     if (managerFromStorage?.trim()) {
       setManagerName(managerFromStorage.trim())
     }
@@ -55,7 +61,7 @@ export default function ParametresPage() {
           <header className="space-y-2">
             <h1 className="text-2xl font-semibold text-gray-900">Parametres</h1>
             <p className="text-sm text-gray-500">
-              Configurez les parametres generaux de votre espace UpStay.
+              Configurez les parametres generaux de votre espace Guestflow.
             </p>
           </header>
 
@@ -134,13 +140,11 @@ export default function ParametresPage() {
 }
 
 function persistManagerName(value: string) {
-  window.localStorage.setItem("upstay_manager_name", value.trim())
-  window.dispatchEvent(new Event("upstay-manager-updated"))
+  setStoredManagerName(value)
 }
 
 function persistCompanyName(value: string) {
-  window.localStorage.setItem("upstay_company_name", value.trim())
-  window.dispatchEvent(new Event("upstay-company-updated"))
+  setStoredCompanyName(value)
 }
 
 type SettingToggleProps = {

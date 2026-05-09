@@ -7,6 +7,11 @@ import { LayoutDashboard, LineChart, CalendarHeart, Zap, Settings, LogOut } from
 import { createClient } from "@/lib/supabase/client"
 import { cn } from "@/lib/utils"
 import { getPublicAppName } from "@/lib/branding-public"
+import {
+  getStoredCompanyName,
+  getStoredManagerName,
+  PROFILE_EVENTS,
+} from "@/lib/profile-local-storage"
 
 const navItems = [
   { label: "Tableau de bord", icon: LayoutDashboard, href: "/" },
@@ -23,19 +28,19 @@ export function Sidebar() {
 
   useEffect(() => {
     const applyProfile = () => {
-      const managerFromStorage = window.localStorage.getItem("upstay_manager_name")
-      const companyFromStorage = window.localStorage.getItem("upstay_company_name")
+      const managerFromStorage = getStoredManagerName()
+      const companyFromStorage = getStoredCompanyName()
       setManagerName(managerFromStorage?.trim() || "Marie Clément")
       setCompanyName(companyFromStorage?.trim() || "Domaine des Roses")
     }
 
     applyProfile()
-    window.addEventListener("upstay-manager-updated", applyProfile)
-    window.addEventListener("upstay-company-updated", applyProfile)
+    window.addEventListener(PROFILE_EVENTS.manager, applyProfile)
+    window.addEventListener(PROFILE_EVENTS.company, applyProfile)
     window.addEventListener("storage", applyProfile)
     return () => {
-      window.removeEventListener("upstay-manager-updated", applyProfile)
-      window.removeEventListener("upstay-company-updated", applyProfile)
+      window.removeEventListener(PROFILE_EVENTS.manager, applyProfile)
+      window.removeEventListener(PROFILE_EVENTS.company, applyProfile)
       window.removeEventListener("storage", applyProfile)
     }
   }, [])
