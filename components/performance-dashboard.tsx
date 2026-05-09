@@ -128,14 +128,18 @@ export function PerformanceDashboard() {
       .map(([, value]) => value)
   }, [rows])
 
-  /** Montants de solde agrégés par statut (parts du camembert proportionnelles aux €). */
-  const balanceAmountsByStatus = useMemo(() => {
+  /**
+   * Acomptes + soldes : chaque ligne contribue deux montants (dépôt + solde),
+   * classés selon le statut de ce paiement (parts du camembert en €).
+   */
+  const depositAndBalanceAmountsByStatus = useMemo(() => {
     const sums: Record<PaymentStatus, number> = {
       pending: 0,
       paid: 0,
       to_collect: 0,
     }
     for (const row of rows) {
+      sums[row.deposit.status] += parseEuroAmount(row.deposit.amount)
       sums[row.balance.status] += parseEuroAmount(row.balance.amount)
     }
     return [
@@ -159,7 +163,7 @@ export function PerformanceDashboard() {
       ({
         paid: { label: "Payé", color: "hsl(142 76% 36%)" },
         pending: { label: "En attente", color: "hsl(45 93% 47%)" },
-        to_collect: { label: "À encaisser", color: "hsl(217 91% 60%)" },
+        to_collect: { label: "À percevoir", color: "hsl(217 91% 60%)" },
       }) satisfies ChartConfig,
     []
   )
@@ -222,7 +226,7 @@ export function PerformanceDashboard() {
         <Card className="bg-white border-gray-100 shadow-sm">
           <CardHeader className="pb-0">
             <CardTitle className="text-base text-gray-900">
-              Répartition des soldes (montants)
+              Acomptes et soldes par statut (montants)
             </CardTitle>
           </CardHeader>
           <CardContent className="pt-4">
@@ -248,7 +252,7 @@ export function PerformanceDashboard() {
                     cursor={false}
                   />
                   <Pie
-                    data={balanceAmountsByStatus}
+                    data={depositAndBalanceAmountsByStatus}
                     dataKey="value"
                     nameKey="name"
                     innerRadius={60}
@@ -256,7 +260,7 @@ export function PerformanceDashboard() {
                     stroke="transparent"
                     fill="var(--color-paid)"
                   >
-                    {balanceAmountsByStatus.map((entry) => (
+                    {depositAndBalanceAmountsByStatus.map((entry) => (
                       <CellByName key={entry.name} name={entry.name} />
                     ))}
                   </Pie>
@@ -264,7 +268,7 @@ export function PerformanceDashboard() {
               </ResponsiveContainer>
             </ChartContainer>
             <div className="pt-3">
-              <LegendInline config={statusChartConfig} data={balanceAmountsByStatus} />
+              <LegendInline config={statusChartConfig} data={depositAndBalanceAmountsByStatus} />
             </div>
           </CardContent>
         </Card>
