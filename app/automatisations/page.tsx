@@ -228,7 +228,8 @@ export default function AutomatisationsPage() {
             <CardHeader>
               <CardTitle>Reglage des envois automatiques</CardTitle>
               <CardDescription>
-                Choisissez le creneau horaire quotidien d&apos;envoi des e-mails.
+                Creneau quotidien d&apos;envoi (heure de Paris par defaut). Le serveur verifie
+                toutes les 10 minutes et envoie une seule fois par jour a l&apos;heure choisie.
               </CardDescription>
             </CardHeader>
             <CardContent className="space-y-5">

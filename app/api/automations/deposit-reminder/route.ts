@@ -1,10 +1,24 @@
 import { NextResponse } from "next/server"
-import { getAutomationSettings } from "@/lib/automation-settings-store"
+import {
+  getAutomationSettings,
+  markDepositReminderParisDate,
+} from "@/lib/automation-settings-store"
+import {
+  addCalendarDaysInTimeZone,
+  AUTOMATION_CRON_POLL_MINUTES,
+  getAutomationTimezone,
+  getZonedCalendarDateAndMinutes,
+  shouldRunScheduledSend,
+} from "@/lib/automation-schedule"
 import { buildAutomationVariableMap, renderTemplate } from "@/lib/email-template"
 import { listWeddings } from "@/lib/weddings-store"
 import { getResendClient } from "@/lib/resend"
 
-/** POST pour les tests manuels (curl) ; GET pour Vercel Cron. */
+/**
+ * POST pour les tests manuels (curl) ; GET pour Vercel Cron (toutes les 10 min).
+ * Horaire réel = `send_time` en base (page Automatisations), fuseau `AUTOMATION_TIMEZONE` (défaut Europe/Paris).
+ * `?dryRun=1` : ignore le créneau. `?skipSchedule=1` : envoi hors créneau (tests, ne marque pas la journée comme traitée).
+ */
 export async function GET(request: Request) {
   return runDepositReminder(request)
 }
@@ -19,8 +33,43 @@ async function runDepositReminder(request: Request) {
 
   const url = new URL(request.url)
   const dryRun = url.searchParams.get("dryRun") === "1"
+  const skipSchedule = url.searchParams.get("skipSchedule") === "1"
   const daysAhead = clampDaysAhead(url.searchParams.get("days"), 30)
-  const targetDate = getCalendarDateDaysFromToday(daysAhead)
+
+  const automation = await getAutomationSettings()
+  const timeZone = getAutomationTimezone()
+  const targetDate = addCalendarDaysInTimeZone(timeZone, daysAhead)
+
+  const scheduleCheck = shouldRunScheduledSend(automation.sendTime, {
+    timeZone,
+    pollWindowMinutes: AUTOMATION_CRON_POLL_MINUTES,
+  })
+
+  if (!dryRun && !skipSchedule) {
+    if (!scheduleCheck.run) {
+      return NextResponse.json({
+        ok: true,
+        skipped: true,
+        reason: "outside_send_window",
+        sendTime: automation.sendTime,
+        timeZone,
+        pollWindowMinutes: AUTOMATION_CRON_POLL_MINUTES,
+        calendarDate: scheduleCheck.calendarDate,
+        nowMinutes: scheduleCheck.nowMinutes,
+        targetMinutes: scheduleCheck.targetMinutes,
+      })
+    }
+    if (automation.lastDepositReminderParisDate === scheduleCheck.calendarDate) {
+      return NextResponse.json({
+        ok: true,
+        skipped: true,
+        reason: "already_ran_today",
+        sendTime: automation.sendTime,
+        timeZone,
+        calendarDate: scheduleCheck.calendarDate,
+      })
+    }
+  }
 
   const weddings = await listWeddings()
   const candidates = weddings.filter((wedding) => {
@@ -38,10 +87,15 @@ async function runDepositReminder(request: Request) {
       filter: "balance_pending_only",
       count: candidates.length,
       recipients: candidates.map((wedding) => wedding.email),
+      sendTime: automation.sendTime,
+      timeZone,
+      schedule: {
+        withinSendWindow: scheduleCheck.run,
+        calendarDate: scheduleCheck.calendarDate,
+        pollWindowMinutes: AUTOMATION_CRON_POLL_MINUTES,
+      },
     })
   }
-
-  const automation = await getAutomationSettings()
 
   const resend = getResendClient()
   const fromEmail = process.env.RESEND_FROM_EMAIL
@@ -70,6 +124,11 @@ async function runDepositReminder(request: Request) {
     }
   }
 
+  if (!skipSchedule) {
+    const ranDay = getZonedCalendarDateAndMinutes(timeZone).calendarDate
+    await markDepositReminderParisDate(ranDay)
+  }
+
   return NextResponse.json({
     ok: failures.length === 0,
     filter: "balance_pending_only",
@@ -79,6 +138,8 @@ async function runDepositReminder(request: Request) {
     sent: sentTo.length,
     failed: failures.length,
     failures,
+    sendTime: automation.sendTime,
+    timeZone,
   })
 }
 
@@ -109,14 +170,4 @@ function clampDaysAhead(raw: string | null, fallback: number) {
   const n = Number.parseInt(raw ?? "", 10)
   if (!Number.isFinite(n) || n < 0 || n > 365) return fallback
   return n
-}
-
-function getCalendarDateDaysFromToday(daysFromToday: number) {
-  const d = new Date()
-  d.setHours(12, 0, 0, 0)
-  d.setDate(d.getDate() + daysFromToday)
-  const y = d.getFullYear()
-  const m = String(d.getMonth() + 1).padStart(2, "0")
-  const day = String(d.getDate()).padStart(2, "0")
-  return `${y}-${m}-${day}`
 }
