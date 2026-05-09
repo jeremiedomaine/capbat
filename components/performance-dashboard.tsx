@@ -128,17 +128,20 @@ export function PerformanceDashboard() {
       .map(([, value]) => value)
   }, [rows])
 
-  const balanceStatuses = useMemo(() => {
-    const counts: Record<PaymentStatus, number> = {
+  /** Montants de solde agrégés par statut (parts du camembert proportionnelles aux €). */
+  const balanceAmountsByStatus = useMemo(() => {
+    const sums: Record<PaymentStatus, number> = {
       pending: 0,
       paid: 0,
       to_collect: 0,
     }
-    for (const row of rows) counts[row.balance.status] += 1
+    for (const row of rows) {
+      sums[row.balance.status] += parseEuroAmount(row.balance.amount)
+    }
     return [
-      { name: "paid", value: counts.paid },
-      { name: "pending", value: counts.pending },
-      { name: "to_collect", value: counts.to_collect },
+      { name: "paid", value: sums.paid },
+      { name: "pending", value: sums.pending },
+      { name: "to_collect", value: sums.to_collect },
     ]
   }, [rows])
 
@@ -219,7 +222,7 @@ export function PerformanceDashboard() {
         <Card className="bg-white border-gray-100 shadow-sm">
           <CardHeader className="pb-0">
             <CardTitle className="text-base text-gray-900">
-              Statut des soldes
+              Répartition des soldes (montants)
             </CardTitle>
           </CardHeader>
           <CardContent className="pt-4">
@@ -227,11 +230,25 @@ export function PerformanceDashboard() {
               <ResponsiveContainer>
                 <PieChart>
                   <RechartsTooltip
-                    content={<ChartTooltipContent nameKey="name" />}
+                    content={
+                      <ChartTooltipContent
+                        nameKey="name"
+                        formatter={(value, name) => (
+                          <div className="flex w-full min-w-[10rem] justify-between gap-4 tabular-nums">
+                            <span className="text-muted-foreground">
+                              {statusChartConfig[String(name)]?.label ?? String(name)}
+                            </span>
+                            <span className="font-medium">
+                              {formatEuro(typeof value === "number" ? value : Number(value))}
+                            </span>
+                          </div>
+                        )}
+                      />
+                    }
                     cursor={false}
                   />
                   <Pie
-                    data={balanceStatuses}
+                    data={balanceAmountsByStatus}
                     dataKey="value"
                     nameKey="name"
                     innerRadius={60}
@@ -239,7 +256,7 @@ export function PerformanceDashboard() {
                     stroke="transparent"
                     fill="var(--color-paid)"
                   >
-                    {balanceStatuses.map((entry) => (
+                    {balanceAmountsByStatus.map((entry) => (
                       <CellByName key={entry.name} name={entry.name} />
                     ))}
                   </Pie>
@@ -247,7 +264,7 @@ export function PerformanceDashboard() {
               </ResponsiveContainer>
             </ChartContainer>
             <div className="pt-3">
-              <LegendInline config={statusChartConfig} />
+              <LegendInline config={statusChartConfig} data={balanceAmountsByStatus} />
             </div>
           </CardContent>
         </Card>
@@ -287,22 +304,36 @@ function CellByName({ name }: { name: string }) {
   return <Cell fill={fill} />
 }
 
-function LegendInline({ config }: { config: ChartConfig }) {
+function LegendInline({
+  config,
+  data,
+}: {
+  config: ChartConfig
+  data: Array<{ name: string; value: number }>
+}) {
   const items = [
     { key: "paid", var: "var(--color-paid)" },
     { key: "pending", var: "var(--color-pending)" },
     { key: "to_collect", var: "var(--color-to_collect)" },
   ] as const
 
+  const amountByKey = Object.fromEntries(data.map((d) => [d.name, d.value])) as Record<
+    string,
+    number
+  >
+
   return (
     <div className="flex flex-wrap items-center justify-center gap-4 text-xs text-gray-600">
       {items.map((item) => (
-        <div key={item.key} className="flex items-center gap-2">
+        <div key={item.key} className="flex items-center gap-2 tabular-nums">
           <span
             className="inline-block h-2 w-2 rounded-sm"
             style={{ backgroundColor: item.var }}
           />
-          <span>{config[item.key]?.label ?? item.key}</span>
+          <span>
+            {config[item.key]?.label ?? item.key}
+            <span className="text-gray-900 font-medium"> · {formatEuro(amountByKey[item.key] ?? 0)}</span>
+          </span>
         </div>
       ))}
     </div>
