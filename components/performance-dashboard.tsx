@@ -8,10 +8,8 @@ import {
   Bar,
   BarChart,
   CartesianGrid,
-  Cell,
   Pie,
   PieChart,
-  ResponsiveContainer,
   Tooltip as RechartsTooltip,
   XAxis,
   YAxis,
@@ -39,6 +37,13 @@ type WeddingRow = {
 }
 
 type MonthKey = `${number}-${string}`
+
+/** Couleurs fixes (pas besoin des CSS vars du ChartContainer ; un `fill` sur `<Pie>` les écrase sinon). */
+const STATUS_PIE_COLORS: Record<"paid" | "pending" | "to_collect", string> = {
+  paid: "hsl(142 71% 40%)",
+  pending: "hsl(48 96% 50%)",
+  to_collect: "hsl(28 92% 52%)",
+}
 
 export function PerformanceDashboard() {
   const [rows, setRows] = useState<WeddingRow[]>([])
@@ -143,9 +148,9 @@ export function PerformanceDashboard() {
       sums[row.balance.status] += parseEuroAmount(row.balance.amount)
     }
     return [
-      { name: "paid", value: sums.paid },
-      { name: "pending", value: sums.pending },
-      { name: "to_collect", value: sums.to_collect },
+      { name: "paid", value: sums.paid, fill: STATUS_PIE_COLORS.paid },
+      { name: "pending", value: sums.pending, fill: STATUS_PIE_COLORS.pending },
+      { name: "to_collect", value: sums.to_collect, fill: STATUS_PIE_COLORS.to_collect },
     ]
   }, [rows])
 
@@ -161,9 +166,9 @@ export function PerformanceDashboard() {
   const statusChartConfig = useMemo(
     () =>
       ({
-        paid: { label: "Payé", color: "hsl(142 76% 36%)" },
-        pending: { label: "En attente", color: "hsl(45 93% 47%)" },
-        to_collect: { label: "À percevoir", color: "hsl(217 91% 60%)" },
+        paid: { label: "Payé", color: STATUS_PIE_COLORS.paid },
+        pending: { label: "En attente", color: STATUS_PIE_COLORS.pending },
+        to_collect: { label: "À percevoir", color: STATUS_PIE_COLORS.to_collect },
       }) satisfies ChartConfig,
     []
   )
@@ -231,41 +236,43 @@ export function PerformanceDashboard() {
           </CardHeader>
           <CardContent className="pt-4">
             <ChartContainer config={statusChartConfig} className="h-[320px] w-full">
-              <ResponsiveContainer>
-                <PieChart>
-                  <RechartsTooltip
-                    content={
-                      <ChartTooltipContent
-                        nameKey="name"
-                        formatter={(value, name) => (
-                          <div className="flex w-full min-w-[10rem] justify-between gap-4 tabular-nums">
-                            <span className="text-muted-foreground">
-                              {statusChartConfig[String(name)]?.label ?? String(name)}
-                            </span>
-                            <span className="font-medium">
-                              {formatEuro(typeof value === "number" ? value : Number(value))}
-                            </span>
-                          </div>
-                        )}
-                      />
-                    }
-                    cursor={false}
-                  />
-                  <Pie
-                    data={depositAndBalanceAmountsByStatus}
-                    dataKey="value"
-                    nameKey="name"
-                    innerRadius={60}
-                    outerRadius={95}
-                    stroke="transparent"
-                    fill="var(--color-paid)"
-                  >
-                    {depositAndBalanceAmountsByStatus.map((entry) => (
-                      <CellByName key={entry.name} name={entry.name} />
-                    ))}
-                  </Pie>
-                </PieChart>
-              </ResponsiveContainer>
+              <PieChart>
+                <RechartsTooltip
+                  content={
+                    <ChartTooltipContent
+                      nameKey="name"
+                      formatter={(value, name) => (
+                        <div className="flex w-full min-w-[10rem] justify-between gap-4 tabular-nums">
+                          <span className="text-muted-foreground">
+                            {statusChartConfig[String(name)]?.label ?? String(name)}
+                          </span>
+                          <span className="font-medium">
+                            {formatEuro(typeof value === "number" ? value : Number(value))}
+                          </span>
+                        </div>
+                      )}
+                    />
+                  }
+                  cursor={false}
+                />
+                <Pie
+                  data={depositAndBalanceAmountsByStatus}
+                  dataKey="value"
+                  nameKey="name"
+                  innerRadius={60}
+                  outerRadius={95}
+                  paddingAngle={2}
+                  stroke="#ffffff"
+                  strokeWidth={2}
+                  labelLine={false}
+                  label={({ name, percent }) => {
+                    const p = typeof percent === "number" ? percent * 100 : 0
+                    if (p < 4) return null
+                    const label = statusChartConfig[String(name)]?.label ?? String(name)
+                    return `${label} (${Math.round(p)}%)`
+                  }}
+                />
+              </PieChart>
             </ChartContainer>
             <div className="pt-3">
               <LegendInline config={statusChartConfig} data={depositAndBalanceAmountsByStatus} />
@@ -298,16 +305,6 @@ function formatEuro(value: number) {
   return `${new Intl.NumberFormat("fr-FR").format(Math.round(value))} €`
 }
 
-function CellByName({ name }: { name: string }) {
-  const fill =
-    name === "paid"
-      ? "var(--color-paid)"
-      : name === "pending"
-        ? "var(--color-pending)"
-        : "var(--color-to_collect)"
-  return <Cell fill={fill} />
-}
-
 function LegendInline({
   config,
   data,
@@ -316,9 +313,9 @@ function LegendInline({
   data: Array<{ name: string; value: number }>
 }) {
   const items = [
-    { key: "paid", var: "var(--color-paid)" },
-    { key: "pending", var: "var(--color-pending)" },
-    { key: "to_collect", var: "var(--color-to_collect)" },
+    { key: "paid" as const, color: STATUS_PIE_COLORS.paid },
+    { key: "pending" as const, color: STATUS_PIE_COLORS.pending },
+    { key: "to_collect" as const, color: STATUS_PIE_COLORS.to_collect },
   ] as const
 
   const amountByKey = Object.fromEntries(data.map((d) => [d.name, d.value])) as Record<
@@ -332,7 +329,7 @@ function LegendInline({
         <div key={item.key} className="flex items-center gap-2 tabular-nums">
           <span
             className="inline-block h-2 w-2 rounded-sm"
-            style={{ backgroundColor: item.var }}
+            style={{ backgroundColor: item.color }}
           />
           <span>
             {config[item.key]?.label ?? item.key}

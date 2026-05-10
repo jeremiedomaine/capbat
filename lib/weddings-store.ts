@@ -183,10 +183,36 @@ export async function deleteWedding(weddingId: number) {
   return Boolean(data)
 }
 
-function normalizeStatus(status?: PaymentStatus, paid?: boolean): PaymentStatus {
-  if (status) return status
-  if (typeof paid === "boolean") return paid ? "paid" : "pending"
-  return "pending"
+/** Colonne unique `status` (legacy) ou chaînes FR / EN depuis Supabase. */
+function parsePaymentStatusFlexible(raw: unknown): PaymentStatus | null {
+  if (raw === null || raw === undefined) return null
+  const trimmed = String(raw).trim()
+  if (trimmed === "") return null
+  const lower = trimmed.toLowerCase()
+  const noAccent = lower.normalize("NFD").replace(/[\u0300-\u036f]/g, "")
+
+  if (lower === "paid" || lower === "pending" || lower === "to_collect") {
+    return lower as PaymentStatus
+  }
+  if (noAccent === "paye") return "paid"
+  if (noAccent.includes("percevoir")) return "to_collect"
+  if (noAccent === "confirme") return "pending"
+
+  return null
+}
+
+function resolvePaymentFieldStatus(
+  row: ReservationRow,
+  field: "deposit" | "balance"
+): PaymentStatus {
+  const raw =
+    field === "deposit"
+      ? row.deposit_status ?? (row as { depositStatus?: unknown }).depositStatus
+      : row.balance_status ?? (row as { balanceStatus?: unknown }).balanceStatus
+  const explicit = parsePaymentStatusFlexible(raw)
+  if (explicit !== null) return explicit
+  const legacy = parsePaymentStatusFlexible(row.status)
+  return legacy ?? "pending"
 }
 
 type ReservationRow = {
@@ -200,12 +226,14 @@ type ReservationRow = {
   phone?: string | null
   event_date?: string | null
   eventDate?: string | null
+  /** Table legacy : un seul statut global (payé / confirmé / à percevoir). */
+  status?: string | null
   deposit_amount?: number | string | null
   depositAmount?: number | string | null
   balance_amount?: number | string | null
   balanceAmount?: number | string | null
-  deposit_status?: PaymentStatus | null
-  balance_status?: PaymentStatus | null
+  deposit_status?: PaymentStatus | string | null
+  balance_status?: PaymentStatus | string | null
   autopilot?: boolean | null
   last_activity?: string | null
   lastActivity?: string | null
@@ -244,11 +272,11 @@ function mapReservationToWedding(row: ReservationRow, index: number): Wedding {
     eventDate,
     deposit: {
       amount: toEuroAmount(row.deposit_amount ?? row.depositAmount),
-      status: normalizeStatus(row.deposit_status ?? undefined),
+      status: resolvePaymentFieldStatus(row, "deposit"),
     },
     balance: {
       amount: toEuroAmount(row.balance_amount ?? row.balanceAmount),
-      status: normalizeStatus(row.balance_status ?? undefined),
+      status: resolvePaymentFieldStatus(row, "balance"),
     },
     autopilot: row.autopilot ?? false,
     lastActivity: row.last_activity ?? row.lastActivity ?? "Synchronisé depuis Supabase",
