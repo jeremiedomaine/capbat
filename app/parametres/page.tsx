@@ -7,10 +7,13 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Input } from "@/components/ui/input"
 import { Switch } from "@/components/ui/switch"
 import { Button } from "@/components/ui/button"
+import { isValidEmail } from "@/lib/form-validation"
 import {
   getStoredCompanyName,
+  getStoredContactEmail,
   getStoredManagerName,
   setStoredCompanyName,
+  setStoredContactEmail,
   setStoredManagerName,
 } from "@/lib/profile-local-storage"
 
@@ -35,6 +38,10 @@ export default function ParametresPage() {
     if (companyFromStorage?.trim()) {
       setCompanyName(companyFromStorage.trim())
     }
+    const emailFromStorage = getStoredContactEmail()
+    if (emailFromStorage?.trim()) {
+      setEmail(emailFromStorage.trim())
+    }
   }, [])
 
   const handleSave = () => {
@@ -44,8 +51,15 @@ export default function ParametresPage() {
       })
       return
     }
+    if (!isValidEmail(email)) {
+      toast.error("E-mail invalide", {
+        description: "Renseignez une adresse e-mail de contact valide (pour les tests d’envoi notamment).",
+      })
+      return
+    }
     persistManagerName(managerName)
     persistCompanyName(companyName)
+    setStoredContactEmail(email.trim())
     setSaved(true)
     setTimeout(() => setSaved(false), 2500)
     toast.success("Paramètres enregistrés", {

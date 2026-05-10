@@ -1,7 +1,8 @@
 "use client"
 
 import { useEffect, useMemo, useRef, useState } from "react"
-import { Loader2 } from "lucide-react"
+import Link from "next/link"
+import { Loader2, Mail } from "lucide-react"
 import { toast } from "sonner"
 import { Sidebar } from "@/components/sidebar"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
@@ -14,23 +15,13 @@ import {
   DEFAULT_AUTOMATION_SUBJECT,
   FIXED_AUTOMATION_SEND_TIME,
 } from "@/lib/automation-defaults"
+import {
+  AUTOMATION_PREVIEW_DAYS_AHEAD,
+  AUTOMATION_PREVIEW_SAMPLE_WEDDING,
+} from "@/lib/automation-preview-sample"
 import { buildAutomationVariableMap, renderTemplate } from "@/lib/email-template"
-import type { Wedding } from "@/lib/weddings-store"
-
-const previewDaysAhead = 30
-
-const previewWedding: Wedding = {
-  id: 0,
-  couple: "Camille & Jordan",
-  contactName: "Camille Dupont",
-  email: "client@exemple.fr",
-  phone: "06 12 34 56 78",
-  eventDate: "2026-09-15",
-  deposit: { amount: "500 €", status: "paid" },
-  balance: { amount: "2 450 €", status: "pending" },
-  autopilot: true,
-  lastActivity: "",
-}
+import { isValidEmail } from "@/lib/form-validation"
+import { getStoredContactEmail, PROFILE_EVENTS } from "@/lib/profile-local-storage"
 
 const variableButtons = [
   "{{prenom}}",
@@ -51,8 +42,17 @@ export default function AutomatisationsPage() {
   const [saveError, setSaveError] = useState("")
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
+  const [sendingTest, setSendingTest] = useState(false)
+  const [testRecipientEmail, setTestRecipientEmail] = useState("")
   const messageRef = useRef<HTMLTextAreaElement | null>(null)
   const subjectRef = useRef<HTMLInputElement | null>(null)
+
+  useEffect(() => {
+    const syncRecipient = () => setTestRecipientEmail(getStoredContactEmail()?.trim() ?? "")
+    syncRecipient()
+    window.addEventListener(PROFILE_EVENTS.contactEmail, syncRecipient)
+    return () => window.removeEventListener(PROFILE_EVENTS.contactEmail, syncRecipient)
+  }, [])
 
   useEffect(() => {
     let cancelled = false
@@ -85,7 +85,7 @@ export default function AutomatisationsPage() {
   }, [])
 
   const previewVars = useMemo(
-    () => buildAutomationVariableMap(previewWedding, previewDaysAhead),
+    () => buildAutomationVariableMap(AUTOMATION_PREVIEW_SAMPLE_WEDDING, AUTOMATION_PREVIEW_DAYS_AHEAD),
     []
   )
 
@@ -147,6 +147,52 @@ export default function AutomatisationsPage() {
       toast.error("Enregistrement impossible", { description: m })
     } finally {
       setSaving(false)
+    }
+  }
+
+  const handleSendTestEmail = async () => {
+    const to = testRecipientEmail.trim()
+    if (!to || !isValidEmail(to)) {
+      toast.error("Destinataire manquant", {
+        description:
+          "Enregistrez une adresse valide dans Paramètres → E-mail de contact, puis réessayez.",
+      })
+      return
+    }
+    const sub = subject.trim()
+    const msg = message.trim()
+    if (!sub || !msg) {
+      toast.error("Modèle incomplet", {
+        description: "Remplissez l’objet et le corps du message avant d’envoyer un test.",
+      })
+      return
+    }
+
+    setSendingTest(true)
+    try {
+      const response = await fetch("/api/automations/test-email", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          to,
+          subjectTemplate: sub,
+          messageTemplate: msg,
+          daysAhead: AUTOMATION_PREVIEW_DAYS_AHEAD,
+        }),
+      })
+      const payload = (await response.json()) as { ok?: boolean; error?: string }
+      if (!response.ok) {
+        throw new Error(payload.error ?? "Envoi impossible.")
+      }
+      toast.success("E-mail de test envoyé", {
+        description: `Vérifiez la boîte ${to} (objet préfixé « [Test] »).`,
+      })
+    } catch (e) {
+      toast.error("Échec de l’envoi", {
+        description: e instanceof Error ? e.message : "Erreur inconnue.",
+      })
+    } finally {
+      setSendingTest(false)
     }
   }
 
@@ -265,6 +311,54 @@ export default function AutomatisationsPage() {
                   {previewBody || "Votre message apparaitra ici."}
                 </p>
               </div>
+
+              <div className="rounded-lg border border-emerald-100 bg-emerald-50/60 p-4 space-y-3">
+                <div className="flex flex-col gap-1 sm:flex-row sm:items-center sm:justify-between">
+                  <p className="text-sm font-medium text-gray-900">Tester le rendu par e-mail</p>
+                  <Link
+                    href="/parametres"
+                    className="text-xs font-medium text-emerald-700 hover:text-emerald-800 underline-offset-2 hover:underline"
+                  >
+                    Modifier l&apos;e-mail de contact
+                  </Link>
+                </div>
+                <p className="text-xs text-gray-600 leading-relaxed">
+                  Un message est envoyé à l&apos;adresse enregistrée dans{" "}
+                  <span className="font-medium text-gray-800">Paramètres → E-mail de contact</span>,
+                  avec les mêmes variables factives que l&apos;aperçu ci-dessus. L&apos;expéditeur est celui
+                  configuré sur le serveur (<code className="text-[11px]">RESEND_FROM_EMAIL</code>).
+                </p>
+                <p className="text-sm text-gray-800">
+                  <span className="text-gray-500">Destinataire : </span>
+                  {testRecipientEmail ? (
+                    <span className="font-medium tabular-nums">{testRecipientEmail}</span>
+                  ) : (
+                    <span className="text-amber-800">
+                      Non renseigné — enregistrez un e-mail dans Paramètres.
+                    </span>
+                  )}
+                </p>
+                <Button
+                  type="button"
+                  variant="outline"
+                  className="border-emerald-200 bg-white hover:bg-emerald-50"
+                  disabled={loading || sendingTest || !testRecipientEmail.trim()}
+                  onClick={() => void handleSendTestEmail()}
+                >
+                  {sendingTest ? (
+                    <>
+                      <Loader2 className="mr-2 h-4 w-4 animate-spin" aria-hidden />
+                      Envoi en cours…
+                    </>
+                  ) : (
+                    <>
+                      <Mail className="mr-2 h-4 w-4" aria-hidden />
+                      Envoyer un e-mail test
+                    </>
+                  )}
+                </Button>
+              </div>
+
               <div className="flex flex-wrap items-center gap-3">
                 <Button onClick={() => void handleSave()} disabled={loading || saving}>
                   {saving ? (
