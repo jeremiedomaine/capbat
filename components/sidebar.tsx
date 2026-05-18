@@ -3,7 +3,16 @@
 import { useEffect, useMemo, useState } from "react"
 import Link from "next/link"
 import { usePathname } from "next/navigation"
-import { LayoutDashboard, LineChart, CalendarHeart, Zap, Settings, LogOut, Loader2 } from "lucide-react"
+import {
+  LayoutDashboard,
+  LineChart,
+  CalendarHeart,
+  FileText,
+  Zap,
+  Settings,
+  LogOut,
+  Loader2,
+} from "lucide-react"
 import { toast } from "sonner"
 import { createClient } from "@/lib/supabase/client"
 import { cn } from "@/lib/utils"
@@ -18,6 +27,7 @@ const navItems = [
   { label: "Tableau de bord", icon: LayoutDashboard, href: "/" },
   { label: "Performance", icon: LineChart, href: "/performance" },
   { label: "Liste des Événements", icon: CalendarHeart, href: "/evenements" },
+  { label: "Facturation", icon: FileText, href: "/facturation" },
   { label: "Automatisations", icon: Zap, href: "/automatisations" },
   { label: "Paramètres", icon: Settings, href: "/parametres" },
 ]
