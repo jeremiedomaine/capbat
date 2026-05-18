@@ -4,6 +4,7 @@ export const PROFILE_KEYS = {
   manager: "guestflow_manager_name",
   company: "guestflow_company_name",
   contactEmail: "guestflow_contact_email",
+  contactPhone: "guestflow_contact_phone",
 } as const
 
 const LEGACY_KEYS = {
@@ -16,6 +17,7 @@ export const PROFILE_EVENTS = {
   manager: "guestflow-manager-updated",
   company: "guestflow-company-updated",
   contactEmail: "guestflow-contact-email-updated",
+  contactPhone: "guestflow-contact-phone-updated",
 } as const
 
 export function getStoredManagerName(): string | null {
@@ -55,4 +57,14 @@ export function getStoredContactEmail(): string | null {
 export function setStoredContactEmail(value: string) {
   window.localStorage.setItem(PROFILE_KEYS.contactEmail, value.trim())
   window.dispatchEvent(new Event(PROFILE_EVENTS.contactEmail))
+}
+
+export function getStoredContactPhone(): string | null {
+  if (typeof window === "undefined") return null
+  return window.localStorage.getItem(PROFILE_KEYS.contactPhone)
+}
+
+export function setStoredContactPhone(value: string) {
+  window.localStorage.setItem(PROFILE_KEYS.contactPhone, value.trim())
+  window.dispatchEvent(new Event(PROFILE_EVENTS.contactPhone))
 }

@@ -9,13 +9,9 @@ import { Switch } from "@/components/ui/switch"
 import { Button } from "@/components/ui/button"
 import { isValidEmail } from "@/lib/form-validation"
 import {
-  getStoredCompanyName,
-  getStoredContactEmail,
-  getStoredManagerName,
-  setStoredCompanyName,
-  setStoredContactEmail,
-  setStoredManagerName,
-} from "@/lib/profile-local-storage"
+  loadWorkspaceSettings,
+  persistWorkspaceSettings,
+} from "@/lib/workspace-settings-client"
 
 export default function ParametresPage() {
   const [companyName, setCompanyName] = useState("Domaine des Roses")
@@ -28,23 +24,24 @@ export default function ParametresPage() {
   const [weeklySummary, setWeeklySummary] = useState(false)
   const [darkMode, setDarkMode] = useState(false)
   const [saved, setSaved] = useState(false)
+  const [loading, setLoading] = useState(true)
 
   useEffect(() => {
-    const managerFromStorage = getStoredManagerName()
-    const companyFromStorage = getStoredCompanyName()
-    if (managerFromStorage?.trim()) {
-      setManagerName(managerFromStorage.trim())
-    }
-    if (companyFromStorage?.trim()) {
-      setCompanyName(companyFromStorage.trim())
-    }
-    const emailFromStorage = getStoredContactEmail()
-    if (emailFromStorage?.trim()) {
-      setEmail(emailFromStorage.trim())
-    }
+    loadWorkspaceSettings()
+      .then((settings) => {
+        setCompanyName(settings.companyName)
+        setManagerName(settings.managerName)
+        setEmail(settings.contactEmail)
+        setPhone(settings.contactPhone)
+        setEmailNotif(settings.emailNotifications)
+        setPaymentAlerts(settings.paymentAlerts)
+        setWeeklySummary(settings.weeklySummary)
+        setDarkMode(settings.darkMode)
+      })
+      .finally(() => setLoading(false))
   }, [])
 
-  const handleSave = () => {
+  const handleSave = async () => {
     if (!companyName.trim() || !managerName.trim()) {
       toast.error("Champs obligatoires", {
         description: "Renseignez au minimum le nom de l’établissement et le responsable.",
@@ -57,24 +54,27 @@ export default function ParametresPage() {
       })
       return
     }
-    persistManagerName(managerName)
-    persistCompanyName(companyName)
-    setStoredContactEmail(email.trim())
-    setSaved(true)
-    setTimeout(() => setSaved(false), 2500)
-    toast.success("Paramètres enregistrés", {
-      description: "Les informations affichées dans la barre latérale sont à jour.",
-    })
-  }
-
-  const handleCompanyChange = (value: string) => {
-    setCompanyName(value)
-    persistCompanyName(value)
-  }
-
-  const handleManagerChange = (value: string) => {
-    setManagerName(value)
-    persistManagerName(value)
+    try {
+      await persistWorkspaceSettings({
+        companyName: companyName.trim(),
+        managerName: managerName.trim(),
+        contactEmail: email.trim(),
+        contactPhone: phone.trim(),
+        emailNotifications: emailNotif,
+        paymentAlerts,
+        weeklySummary,
+        darkMode,
+      })
+      setSaved(true)
+      setTimeout(() => setSaved(false), 2500)
+      toast.success("Paramètres enregistrés", {
+        description: "Vos réglages sont sauvegardés sur le serveur.",
+      })
+    } catch (e) {
+      toast.error("Enregistrement impossible", {
+        description: e instanceof Error ? e.message : "Réessayez dans un instant.",
+      })
+    }
   }
 
   return (
@@ -99,11 +99,11 @@ export default function ParametresPage() {
             <CardContent className="grid grid-cols-1 md:grid-cols-2 gap-4">
               <div className="space-y-2">
                 <label className="text-sm font-medium text-gray-800">Nom de l&apos;etablissement</label>
-                <Input value={companyName} onChange={(e) => handleCompanyChange(e.target.value)} />
+                <Input value={companyName} onChange={(e) => setCompanyName(e.target.value)} disabled={loading} />
               </div>
               <div className="space-y-2">
                 <label className="text-sm font-medium text-gray-800">Responsable</label>
-                <Input value={managerName} onChange={(e) => handleManagerChange(e.target.value)} />
+                <Input value={managerName} onChange={(e) => setManagerName(e.target.value)} disabled={loading} />
               </div>
               <div className="space-y-2">
                 <label className="text-sm font-medium text-gray-800">Email de contact</label>
@@ -111,11 +111,12 @@ export default function ParametresPage() {
                   type="email"
                   value={email}
                   onChange={(e) => setEmail(e.target.value)}
+                  disabled={loading}
                 />
               </div>
               <div className="space-y-2">
                 <label className="text-sm font-medium text-gray-800">Telephone</label>
-                <Input value={phone} onChange={(e) => setPhone(e.target.value)} />
+                <Input value={phone} onChange={(e) => setPhone(e.target.value)} disabled={loading} />
               </div>
             </CardContent>
           </Card>
@@ -154,21 +155,15 @@ export default function ParametresPage() {
           </Card>
 
           <div className="flex items-center gap-3">
-            <Button onClick={handleSave}>Enregistrer les parametres</Button>
+            <Button onClick={handleSave} disabled={loading}>
+              Enregistrer les parametres
+            </Button>
             {saved && <span className="text-sm text-emerald-600">Parametres enregistres.</span>}
           </div>
         </div>
       </main>
     </div>
   )
-}
-
-function persistManagerName(value: string) {
-  setStoredManagerName(value)
-}
-
-function persistCompanyName(value: string) {
-  setStoredCompanyName(value)
 }
 
 type SettingToggleProps = {

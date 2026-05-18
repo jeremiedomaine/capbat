@@ -56,18 +56,13 @@ import {
   parseEuroAmount,
   todayIsoDate,
 } from "@/lib/invoice-utils"
+import { type BillingProfile } from "@/lib/billing-local-storage"
+import { getStoredManagerName } from "@/lib/profile-local-storage"
 import {
-  BILLING_EVENTS,
-  getStoredBillingProfile,
-  setStoredBillingProfile,
-  type BillingProfile,
-} from "@/lib/billing-local-storage"
-import {
-  getStoredCompanyName,
-  getStoredContactEmail,
-  getStoredManagerName,
-  PROFILE_EVENTS,
-} from "@/lib/profile-local-storage"
+  loadWorkspaceSettings,
+  persistBillingProfile,
+} from "@/lib/workspace-settings-client"
+import { DEFAULT_WORKSPACE_SETTINGS } from "@/lib/workspace-settings"
 
 type WeddingOption = {
   id: number
@@ -90,9 +85,13 @@ export function BillingDashboard() {
   const [deleteTarget, setDeleteTarget] = useState<Invoice | null>(null)
   const [pendingId, setPendingId] = useState<string | null>(null)
 
-  const [billingProfile, setBillingProfile] = useState<BillingProfile>(getStoredBillingProfile)
-  const [companyName, setCompanyName] = useState("Domaine des Roses")
-  const [contactEmail, setContactEmail] = useState("contact@domainedesroses.fr")
+  const [billingProfile, setBillingProfile] = useState<BillingProfile>(
+    DEFAULT_WORKSPACE_SETTINGS.billing
+  )
+  const [companyName, setCompanyName] = useState(DEFAULT_WORKSPACE_SETTINGS.companyName)
+  const [contactEmail, setContactEmail] = useState(DEFAULT_WORKSPACE_SETTINGS.contactEmail)
+  const [settingsLoading, setSettingsLoading] = useState(true)
+  const [billingSaving, setBillingSaving] = useState(false)
 
   const [newWeddingId, setNewWeddingId] = useState("")
   const [newType, setNewType] = useState<InvoiceType>("deposit")
@@ -128,20 +127,13 @@ export function BillingDashboard() {
   }, [refresh])
 
   useEffect(() => {
-    const syncProfile = () => {
-      setBillingProfile(getStoredBillingProfile())
-      setCompanyName(getStoredCompanyName()?.trim() || "Domaine des Roses")
-      setContactEmail(getStoredContactEmail()?.trim() || "contact@domainedesroses.fr")
-    }
-    syncProfile()
-    window.addEventListener(BILLING_EVENTS.updated, syncProfile)
-    window.addEventListener(PROFILE_EVENTS.company, syncProfile)
-    window.addEventListener(PROFILE_EVENTS.contactEmail, syncProfile)
-    return () => {
-      window.removeEventListener(BILLING_EVENTS.updated, syncProfile)
-      window.removeEventListener(PROFILE_EVENTS.company, syncProfile)
-      window.removeEventListener(PROFILE_EVENTS.contactEmail, syncProfile)
-    }
+    loadWorkspaceSettings()
+      .then((settings) => {
+        setBillingProfile(settings.billing)
+        setCompanyName(settings.companyName)
+        setContactEmail(settings.contactEmail)
+      })
+      .finally(() => setSettingsLoading(false))
   }, [])
 
   const issuerParty = useMemo((): InvoiceParty => {
@@ -158,9 +150,20 @@ export function BillingDashboard() {
     }
   }, [billingProfile, companyName, contactEmail])
 
-  const saveBillingProfile = () => {
-    setStoredBillingProfile(billingProfile)
-    toast.success("Coordonnées de facturation enregistrées")
+  const saveBillingProfile = async () => {
+    setBillingSaving(true)
+    try {
+      await persistBillingProfile(billingProfile)
+      toast.success("Coordonnées de facturation enregistrées", {
+        description: "Conservées après chaque mise à jour du site.",
+      })
+    } catch (e) {
+      toast.error("Enregistrement impossible", {
+        description: e instanceof Error ? e.message : "Réessayez dans un instant.",
+      })
+    } finally {
+      setBillingSaving(false)
+    }
   }
 
   const downloadPdf = async (invoice: Invoice) => {
@@ -402,7 +405,13 @@ export function BillingDashboard() {
             />
           </Field>
           <div className="md:col-span-2 flex items-center gap-3">
-            <Button type="button" variant="outline" onClick={saveBillingProfile}>
+            <Button
+              type="button"
+              variant="outline"
+              onClick={saveBillingProfile}
+              disabled={settingsLoading || billingSaving}
+            >
+              {billingSaving && <Loader2 className="w-4 h-4 mr-2 animate-spin" />}
               Enregistrer les coordonnées
             </Button>
             <p className="text-xs text-gray-500">

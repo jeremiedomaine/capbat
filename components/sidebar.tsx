@@ -22,6 +22,7 @@ import {
   getStoredManagerName,
   PROFILE_EVENTS,
 } from "@/lib/profile-local-storage"
+import { loadWorkspaceSettings } from "@/lib/workspace-settings-client"
 
 const navItems = [
   { label: "Tableau de bord", icon: LayoutDashboard, href: "/" },
@@ -47,6 +48,10 @@ export function Sidebar() {
     }
 
     applyProfile()
+    loadWorkspaceSettings().then((settings) => {
+      setManagerName(settings.managerName)
+      setCompanyName(settings.companyName)
+    })
     window.addEventListener(PROFILE_EVENTS.manager, applyProfile)
     window.addEventListener(PROFILE_EVENTS.company, applyProfile)
     window.addEventListener("storage", applyProfile)
