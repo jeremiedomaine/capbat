@@ -1,28 +1,7 @@
 /**
- * Stockage des factures (Supabase + repli fichier local).
+ * Stockage des factures (Supabase obligatoire sur Vercel ; repli fichier en local uniquement).
  *
- * À créer une fois dans Supabase (SQL Editor) :
- *
- * create table public.invoices (
- *   id uuid primary key default gen_random_uuid(),
- *   number text not null unique,
- *   wedding_id bigint not null,
- *   couple text not null,
- *   invoice_type text not null check (invoice_type in ('deposit', 'balance', 'full')),
- *   status text not null default 'draft' check (status in ('draft', 'sent', 'paid', 'cancelled')),
- *   issued_at date not null,
- *   due_at date not null,
- *   amount_ttc numeric not null,
- *   vat_rate numeric not null default 20,
- *   line_items jsonb not null default '[]',
- *   issuer jsonb not null,
- *   client jsonb not null,
- *   notes text,
- *   created_at timestamptz default now(),
- *   updated_at timestamptz default now()
- * );
- *
- * create index invoices_wedding_id_idx on public.invoices (wedding_id);
+ * Migration : supabase/invoices.sql
  */
 
 import { randomUUID } from "crypto"
@@ -35,7 +14,14 @@ import { buildInvoiceNumber, lineItemsTotal, todayIsoDate } from "@/lib/invoice-
 const TABLE = process.env.SUPABASE_INVOICES_TABLE?.trim() || "invoices"
 const DATA_FILE = path.join(process.cwd(), "data", "invoices.json")
 
+const MISSING_TABLE_HINT =
+  'Table Supabase "invoices" absente. Ouvrez Supabase → SQL Editor et exécutez le fichier supabase/invoices.sql, puis redeployez.'
+
 let storageMode: "supabase" | "file" | null = null
+
+function isProductionRuntime() {
+  return Boolean(process.env.VERCEL)
+}
 
 export async function listInvoices(): Promise<Invoice[]> {
   const rows = await loadAll()
@@ -45,7 +31,9 @@ export async function listInvoices(): Promise<Invoice[]> {
 export async function getInvoice(id: string): Promise<Invoice | null> {
   if (await useSupabase()) {
     const { data, error } = await getSupabaseAdmin().from(TABLE).select("*").eq("id", id).maybeSingle()
-    if (!error && data) return mapDbRow(data as Record<string, unknown>)
+    if (error) throw storageError("lecture", error.message)
+    if (data) return mapDbRow(data as Record<string, unknown>)
+    return null
   }
   const rows = await readFileStore()
   return rows.find((row) => row.id === id) ?? null
@@ -103,11 +91,12 @@ export async function createInvoice(input: CreateInvoiceInput): Promise<Invoice>
 
   if (await useSupabase()) {
     const { error } = await getSupabaseAdmin().from(TABLE).insert(toDbRow(invoice))
-    if (!error) return invoice
-    if (!isMissingTableError(error.message)) {
-      throw new Error(`Supabase insert failed: ${error.message}`)
-    }
-    storageMode = "file"
+    if (error) throw storageError("création", error.message)
+    return invoice
+  }
+
+  if (isProductionRuntime()) {
+    throw new Error(MISSING_TABLE_HINT)
   }
 
   const fileRows = await readFileStore()
@@ -130,15 +119,16 @@ export async function updateInvoiceStatus(id: string, status: InvoiceStatus): Pr
       .from(TABLE)
       .update({ status, updated_at: updated.updatedAt })
       .eq("id", id)
-    if (!error) return updated
-    if (!isMissingTableError(error.message)) {
-      throw new Error(`Supabase update failed: ${error.message}`)
-    }
-    storageMode = "file"
+    if (error) throw storageError("mise à jour", error.message)
+    return updated
   }
 
-  const rows = await readFileStore()
-  const next = rows.map((row) => (row.id === id ? updated : row))
+  if (isProductionRuntime()) {
+    throw new Error(MISSING_TABLE_HINT)
+  }
+
+  const fileRows = await readFileStore()
+  const next = fileRows.map((row) => (row.id === id ? updated : row))
   await writeFileStore(next)
   return updated
 }
@@ -151,11 +141,12 @@ export async function deleteInvoice(id: string): Promise<boolean> {
       .eq("id", id)
       .select("id")
       .maybeSingle()
-    if (!error) return Boolean(data)
-    if (!isMissingTableError(error.message)) {
-      throw new Error(`Supabase delete failed: ${error.message}`)
-    }
-    storageMode = "file"
+    if (error) throw storageError("suppression", error.message)
+    return Boolean(data)
+  }
+
+  if (isProductionRuntime()) {
+    throw new Error(MISSING_TABLE_HINT)
   }
 
   const rows = await readFileStore()
@@ -168,18 +159,23 @@ export async function deleteInvoice(id: string): Promise<boolean> {
 async function loadAll(): Promise<Invoice[]> {
   if (await useSupabase()) {
     const { data, error } = await getSupabaseAdmin().from(TABLE).select("*")
-    if (!error && data) {
-      return (data as Record<string, unknown>[]).map(mapDbRow)
-    }
-    if (error && !isMissingTableError(error.message)) {
-      console.warn("[invoices] Supabase:", error.message)
-    }
-    storageMode = "file"
+    if (error) throw storageError("liste", error.message)
+    return (data ?? []).map((row) => mapDbRow(row as Record<string, unknown>))
   }
+
+  if (isProductionRuntime()) {
+    throw new Error(MISSING_TABLE_HINT)
+  }
+
   return readFileStore()
 }
 
 async function useSupabase(): Promise<boolean> {
+  if (isProductionRuntime()) {
+    await assertSupabaseTableReady()
+    return true
+  }
+
   if (storageMode === "file") return false
   if (storageMode === "supabase") return true
 
@@ -193,6 +189,7 @@ async function useSupabase(): Promise<boolean> {
       storageMode = "file"
       return false
     }
+    console.warn("[invoices] Supabase probe:", error.message)
     storageMode = "file"
     return false
   } catch {
@@ -201,9 +198,32 @@ async function useSupabase(): Promise<boolean> {
   }
 }
 
+async function assertSupabaseTableReady() {
+  if (storageMode === "supabase") return
+  const { error } = await getSupabaseAdmin().from(TABLE).select("id").limit(1)
+  if (error) {
+    if (isMissingTableError(error.message)) {
+      throw new Error(MISSING_TABLE_HINT)
+    }
+    throw storageError("accès", error.message)
+  }
+  storageMode = "supabase"
+}
+
+function storageError(action: string, message: string) {
+  if (isMissingTableError(message)) {
+    return new Error(MISSING_TABLE_HINT)
+  }
+  return new Error(`Supabase (${action}) : ${message}`)
+}
+
 function isMissingTableError(message: string) {
   const lower = message.toLowerCase()
-  return lower.includes("does not exist") || lower.includes("could not find the table")
+  return (
+    lower.includes("does not exist") ||
+    lower.includes("could not find the table") ||
+    lower.includes("schema cache")
+  )
 }
 
 async function readFileStore(): Promise<Invoice[]> {

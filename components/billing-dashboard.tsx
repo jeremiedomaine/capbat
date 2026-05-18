@@ -215,17 +215,38 @@ export function BillingDashboard() {
       }
       if (!response.ok) throw new Error(payload.error ?? "Génération impossible.")
 
+      const created = payload.created ?? []
+      if (created.length) {
+        setInvoices((prev) => {
+          const ids = new Set(prev.map((row) => row.id))
+          const merged = [...created.filter((row) => !ids.has(row.id)), ...prev]
+          return merged.sort((a, b) => b.issuedAt.localeCompare(a.issuedAt))
+        })
+      }
+
       await refresh()
-      const createdCount = payload.created?.length ?? 0
+
+      const createdCount = created.length
       const skippedCount = payload.skipped?.length ?? 0
+      const firstSkip = payload.skipped?.[0]
+
+      if (createdCount === 0) {
+        toast.warning("Aucune nouvelle facture", {
+          description:
+            firstSkip?.reason ??
+            (skippedCount > 0
+              ? `${skippedCount} ligne(s) ignorée(s) (montant nul ou déjà facturé).`
+              : "Vérifiez que vos événements ont un acompte et un solde renseignés."),
+        })
+        return
+      }
+
       toast.success(
-        createdCount
-          ? `${createdCount} facture${createdCount > 1 ? "s" : ""} créée${createdCount > 1 ? "s" : ""}`
-          : "Aucune nouvelle facture",
+        `${createdCount} facture${createdCount > 1 ? "s" : ""} créée${createdCount > 1 ? "s" : ""}`,
         {
           description:
             skippedCount > 0
-              ? `${skippedCount} événement(s) ignoré(s) (déjà facturé ou montant nul).`
+              ? `${skippedCount} ignorée(s) : ${firstSkip?.reason ?? "déjà facturé ou montant nul"}.`
               : "Téléchargez les PDF depuis la liste.",
         }
       )
