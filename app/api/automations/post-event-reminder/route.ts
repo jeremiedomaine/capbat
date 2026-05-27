@@ -2,10 +2,10 @@ import { NextResponse } from "next/server"
 import { checkAutomationSecret } from "@/lib/automation-auth"
 import {
   getAutomationSettings,
-  markDepositReminderParisDate,
+  markPostEventReminderParisDate,
 } from "@/lib/automation-settings-store"
 import {
-  DEPOSIT_REMINDER_DAYS_BEFORE,
+  POST_EVENT_REMINDER_DAYS_AFTER,
   FIXED_AUTOMATION_SEND_TIME,
 } from "@/lib/automation-defaults"
 import {
@@ -16,34 +16,37 @@ import {
   shouldRunScheduledSend,
 } from "@/lib/automation-schedule"
 import { buildAutomationVariableMap, renderTemplate } from "@/lib/email-template"
-import { listWeddings } from "@/lib/weddings-store"
+import { listWeddings, markPostEventReminderSent } from "@/lib/weddings-store"
 import { getResendClient } from "@/lib/resend"
 
 /**
- * POST pour les tests manuels (curl) ; GET pour Vercel Cron (`0 * * * *`).
- * Envoi autorisé une fois par jour entre 9h00 et 9h55 (fuseau `AUTOMATION_TIMEZONE`, défaut Europe/Paris).
- * `?dryRun=1` : ignore le créneau. `?skipSchedule=1` : envoi immédiat (tests, ne marque pas la journée).
+ * Message après mariage : J+3 (3 jours après la date d'événement), mariages uniquement.
+ * GET/POST pour Vercel Cron ou tests manuels (`?dryRun=1`, `?skipSchedule=1`).
  */
 export async function GET(request: Request) {
-  return runDepositReminder(request)
+  return runPostEventReminder(request)
 }
 
 export async function POST(request: Request) {
-  return runDepositReminder(request)
+  return runPostEventReminder(request)
 }
 
-async function runDepositReminder(request: Request) {
+async function runPostEventReminder(request: Request) {
   const authError = checkAutomationSecret(request)
   if (authError) return authError
 
   const url = new URL(request.url)
   const dryRun = url.searchParams.get("dryRun") === "1"
   const skipSchedule = url.searchParams.get("skipSchedule") === "1"
-  const daysAhead = clampDaysAhead(url.searchParams.get("days"), DEPOSIT_REMINDER_DAYS_BEFORE)
+  const daysAfter = clampDaysAfter(
+    url.searchParams.get("days"),
+    POST_EVENT_REMINDER_DAYS_AFTER
+  )
 
   const automation = await getAutomationSettings()
   const timeZone = getAutomationTimezone()
-  const targetDate = addCalendarDaysInTimeZone(timeZone, daysAhead)
+  /** Date d'événement cible : aujourd'hui moins N jours civils. */
+  const targetEventDate = addCalendarDaysInTimeZone(timeZone, -daysAfter)
 
   const pollWindowMinutes = getAutomationCronPollMinutes()
   const scheduleCheck = shouldRunScheduledSend(FIXED_AUTOMATION_SEND_TIME, {
@@ -58,19 +61,19 @@ async function runDepositReminder(request: Request) {
         ok: true,
         skipped: true,
         reason: "outside_send_window",
+        automation: "post_event_j_plus",
         sendTime: FIXED_AUTOMATION_SEND_TIME,
         timeZone,
         pollWindowMinutes,
         calendarDate: scheduleCheck.calendarDate,
-        nowMinutes: scheduleCheck.nowMinutes,
-        targetMinutes: scheduleCheck.targetMinutes,
       })
     }
-    if (automation.lastDepositReminderParisDate === calendarDate) {
+    if (automation.lastPostEventReminderParisDate === calendarDate) {
       return NextResponse.json({
         ok: true,
         skipped: true,
         reason: "already_ran_today",
+        automation: "post_event_j_plus",
         sendTime: FIXED_AUTOMATION_SEND_TIME,
         timeZone,
         calendarDate,
@@ -80,27 +83,25 @@ async function runDepositReminder(request: Request) {
 
   const weddings = await listWeddings()
   const candidates = weddings.filter((wedding) => {
+    if (wedding.eventType !== "wedding") return false
     if (!wedding.autopilot || !wedding.email) return false
-    if (wedding.eventDate.slice(0, 10) !== targetDate) return false
-    return wedding.balance.status === "pending"
+    if (wedding.eventDate.slice(0, 10) !== targetEventDate) return false
+    if (wedding.postEventReminderSentDate) return false
+    return true
   })
 
   if (dryRun) {
     return NextResponse.json({
       ok: true,
       dryRun: true,
-      targetDate,
-      daysAhead,
-      filter: "balance_pending_only",
+      automation: "post_event_j_plus",
+      targetEventDate,
+      daysAfter,
+      filter: "weddings_autopilot_not_yet_sent",
       count: candidates.length,
       recipients: candidates.map((wedding) => wedding.email),
       sendTime: FIXED_AUTOMATION_SEND_TIME,
       timeZone,
-      schedule: {
-        withinSendWindow: scheduleCheck.run,
-        calendarDate: scheduleCheck.calendarDate,
-        pollWindowMinutes,
-      },
     })
   }
 
@@ -114,14 +115,15 @@ async function runDepositReminder(request: Request) {
   const failures: Array<{ email: string; reason: string }> = []
 
   for (const wedding of candidates) {
-    const vars = buildAutomationVariableMap(wedding, daysAhead)
+    const vars = buildAutomationVariableMap(wedding, undefined, daysAfter)
     try {
       await resend.emails.send({
         from: fromEmail,
         to: wedding.email,
-        subject: renderTemplate(automation.subjectTemplate, vars),
-        text: renderTemplate(automation.messageTemplate, vars),
+        subject: renderTemplate(automation.postEventSubjectTemplate, vars),
+        text: renderTemplate(automation.postEventMessageTemplate, vars),
       })
+      await markPostEventReminderSent(wedding.id, calendarDate)
       sentTo.push(wedding.email)
     } catch (error) {
       failures.push({
@@ -132,15 +134,15 @@ async function runDepositReminder(request: Request) {
   }
 
   if (!skipSchedule) {
-    const ranDay = getZonedCalendarDateAndMinutes(timeZone).calendarDate
-    await markDepositReminderParisDate(ranDay)
+    await markPostEventReminderParisDate(calendarDate)
   }
 
   return NextResponse.json({
     ok: failures.length === 0,
-    filter: "balance_pending_only",
-    daysAhead,
-    targetDate,
+    automation: "post_event_j_plus",
+    daysAfter,
+    targetEventDate,
+    filter: "weddings_autopilot_not_yet_sent",
     matched: candidates.length,
     sent: sentTo.length,
     failed: failures.length,
@@ -151,7 +153,7 @@ async function runDepositReminder(request: Request) {
   })
 }
 
-function clampDaysAhead(raw: string | null, fallback: number) {
+function clampDaysAfter(raw: string | null, fallback: number) {
   const n = Number.parseInt(raw ?? "", 10)
   if (!Number.isFinite(n) || n < 0 || n > 365) return fallback
   return n

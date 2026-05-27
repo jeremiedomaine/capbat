@@ -13,7 +13,11 @@ export function renderTemplate(template: string, vars: Record<string, string>) {
   )
 }
 
-export function buildAutomationVariableMap(wedding: Wedding, daysAhead: number): Record<string, string> {
+export function buildAutomationVariableMap(
+  wedding: Wedding,
+  daysAhead?: number,
+  daysAfter?: number
+): Record<string, string> {
   const contact = (wedding.contactName || wedding.couple).trim()
   const prenom = contact.split(/\s+/)[0] || contact
 
@@ -25,6 +29,7 @@ export function buildAutomationVariableMap(wedding: Wedding, daysAhead: number):
     contact: wedding.contactName,
     acompte: wedding.deposit.amount,
     telephone: wedding.phone,
-    j_moins: String(daysAhead),
+    j_moins: daysAhead !== undefined ? String(daysAhead) : "",
+    j_plus: daysAfter !== undefined ? String(daysAfter) : "",
   }
 }

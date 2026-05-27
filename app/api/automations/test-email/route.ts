@@ -25,6 +25,7 @@ export async function POST(request: Request) {
     subjectTemplate?: string
     messageTemplate?: string
     daysAhead?: number
+    daysAfter?: number
   }
   try {
     body = (await request.json()) as typeof body
@@ -63,7 +64,19 @@ export async function POST(request: Request) {
       ? Math.floor(body.daysAhead)
       : AUTOMATION_PREVIEW_DAYS_AHEAD
 
-  const vars = buildAutomationVariableMap(AUTOMATION_PREVIEW_SAMPLE_WEDDING, daysAhead)
+  const daysAfter =
+    typeof body.daysAfter === "number" &&
+    Number.isFinite(body.daysAfter) &&
+    body.daysAfter >= 0 &&
+    body.daysAfter <= 365
+      ? Math.floor(body.daysAfter)
+      : undefined
+
+  const vars = buildAutomationVariableMap(
+    AUTOMATION_PREVIEW_SAMPLE_WEDDING,
+    daysAfter !== undefined ? undefined : daysAhead,
+    daysAfter
+  )
   const subjectRendered = renderTemplate(subjectRaw, vars)
   const textRendered = renderTemplate(messageRaw, vars)
 

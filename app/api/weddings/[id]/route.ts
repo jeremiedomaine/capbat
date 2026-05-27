@@ -1,6 +1,34 @@
 import { NextResponse } from "next/server"
 import { gateInternalToolAccess } from "@/lib/auth/internal-session"
-import { deleteWedding, updateWedding } from "@/lib/weddings-store"
+import { parseEventType } from "@/lib/event-types"
+import { parsePaymentMethod } from "@/lib/payment-methods"
+import { deleteWedding, getWeddingById, updateWedding } from "@/lib/weddings-store"
+
+export async function GET(
+  _request: Request,
+  context: { params: Promise<{ id: string }> }
+) {
+  try {
+    const denied = await gateInternalToolAccess()
+    if (denied) return denied
+
+    const { id } = await context.params
+    const weddingId = Number.parseInt(id, 10)
+    if (!Number.isInteger(weddingId)) {
+      return NextResponse.json({ error: "Identifiant invalide." }, { status: 400 })
+    }
+
+    const wedding = await getWeddingById(weddingId)
+    if (!wedding) {
+      return NextResponse.json({ error: "Evenement introuvable." }, { status: 404 })
+    }
+
+    return NextResponse.json({ wedding })
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "Erreur interne"
+    return NextResponse.json({ error: message }, { status: 500 })
+  }
+}
 
 export async function PATCH(
   request: Request,
@@ -18,6 +46,7 @@ export async function PATCH(
     }
 
     const body = (await request.json()) as {
+      eventType?: string
       couple?: string
       contactName?: string
       email?: string
@@ -26,9 +55,26 @@ export async function PATCH(
       depositAmount?: string
       balanceAmount?: string
       autopilot?: boolean
+      depositPaidDate?: string | null
+      depositPaymentMethod?: string | null
+      balancePaidDate?: string | null
+      balancePaymentMethod?: string | null
     }
 
-    const updated = await updateWedding(weddingId, body)
+    const updated = await updateWedding(weddingId, {
+      ...body,
+      eventType: body.eventType ? parseEventType(body.eventType) : undefined,
+      depositPaidDate: body.depositPaidDate,
+      depositPaymentMethod:
+        body.depositPaymentMethod === undefined
+          ? undefined
+          : parsePaymentMethod(body.depositPaymentMethod),
+      balancePaidDate: body.balancePaidDate,
+      balancePaymentMethod:
+        body.balancePaymentMethod === undefined
+          ? undefined
+          : parsePaymentMethod(body.balancePaymentMethod),
+    })
     if (!updated) {
       return NextResponse.json({ error: "Evenement introuvable." }, { status: 404 })
     }

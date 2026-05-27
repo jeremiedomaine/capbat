@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server"
 import { gateInternalToolAccess } from "@/lib/auth/internal-session"
+import { parseEventType } from "@/lib/event-types"
 import { createWedding, listWeddings } from "@/lib/weddings-store"
 
 export async function GET() {
@@ -19,6 +20,14 @@ export async function POST(request: Request) {
     const denied = await gateInternalToolAccess()
     if (denied) return denied
     const body = (await request.json()) as {
+      eventType?: string
+      eventName?: string
+      spouse1FirstName?: string
+      spouse1LastName?: string
+      spouse2FirstName?: string
+      spouse2LastName?: string
+      postalAddress?: string
+      comments?: string
       couple?: string
       contactName?: string
       email?: string
@@ -29,9 +38,11 @@ export async function POST(request: Request) {
       autopilot?: boolean
     }
 
+    const eventType = parseEventType(body.eventType)
+
     if (
-      !body.couple ||
-      !body.contactName ||
+      !body.eventName?.trim() ||
+      !body.couple?.trim() ||
       !body.email ||
       !body.phone ||
       !body.eventDate ||
@@ -41,15 +52,40 @@ export async function POST(request: Request) {
       return NextResponse.json(
         {
           error:
-            "Les champs couple, nom du contact, email, téléphone, date, acompte et solde sont obligatoires.",
+            "Les champs nom de l'événement, libellé tableau, email, téléphone, date, acompte et solde sont obligatoires.",
         },
         { status: 400 }
       )
     }
 
+    if (eventType === "other" && !body.contactName?.trim()) {
+      return NextResponse.json({ error: "Le nom du contact est obligatoire." }, { status: 400 })
+    }
+
+    if (
+      eventType === "wedding" &&
+      (!body.spouse1FirstName?.trim() ||
+        !body.spouse1LastName?.trim() ||
+        !body.spouse2FirstName?.trim() ||
+        !body.spouse2LastName?.trim())
+    ) {
+      return NextResponse.json(
+        { error: "Les prénoms et noms des deux mariés sont obligatoires." },
+        { status: 400 }
+      )
+    }
+
     const created = await createWedding({
+      eventType,
+      eventName: body.eventName,
+      spouse1FirstName: body.spouse1FirstName ?? "",
+      spouse1LastName: body.spouse1LastName ?? "",
+      spouse2FirstName: body.spouse2FirstName ?? "",
+      spouse2LastName: body.spouse2LastName ?? "",
+      postalAddress: body.postalAddress ?? "",
+      comments: body.comments ?? "",
       couple: body.couple,
-      contactName: body.contactName,
+      contactName: body.contactName ?? "",
       email: body.email,
       phone: body.phone,
       eventDate: body.eventDate,

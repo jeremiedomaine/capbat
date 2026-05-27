@@ -1,9 +1,15 @@
 import { getSupabaseAdmin } from "@/lib/supabase/admin"
+import { parseEventType, type EventType } from "@/lib/event-types"
+import { parsePaymentMethod } from "@/lib/payment-methods"
+import { type WeddingDetailFields } from "@/lib/wedding-details"
+import { type WeddingPaymentTracking } from "@/lib/wedding-payments"
 
 const db = () => getSupabaseAdmin()
 
-export type Wedding = {
+export type Wedding = WeddingDetailFields &
+  WeddingPaymentTracking & {
   id: number
+  eventType: EventType
   couple: string
   contactName: string
   email: string
@@ -13,11 +19,14 @@ export type Wedding = {
   balance: { amount: string; status: PaymentStatus }
   autopilot: boolean
   lastActivity: string
+  /** Date civile (YYYY-MM-DD) d'envoi du message J+3, si déjà envoyé. */
+  postEventReminderSentDate: string
 }
 
 export type PaymentStatus = "pending" | "paid" | "to_collect"
 
-export type NewWeddingInput = {
+export type NewWeddingInput = WeddingDetailFields & {
+  eventType: EventType
   couple: string
   contactName: string
   email: string
@@ -28,7 +37,9 @@ export type NewWeddingInput = {
   autopilot: boolean
 }
 
-export type UpdateWeddingInput = {
+export type UpdateWeddingInput = Partial<WeddingDetailFields> &
+  Partial<WeddingPaymentTracking> & {
+  eventType?: EventType
   couple?: string
   contactName?: string
   email?: string
@@ -42,6 +53,15 @@ export type UpdateWeddingInput = {
 const RESERVATIONS_TABLE = process.env.SUPABASE_RESERVATIONS_TABLE
 let resolvedTableName: string | null = RESERVATIONS_TABLE ?? null
 
+export async function getWeddingById(weddingId: number): Promise<Wedding | null> {
+  const tableName = await resolveReservationsTableName()
+  const rowFilter = await findRowFilter(tableName, weddingId)
+  if (!rowFilter) return null
+  const row = await fetchRowByFilter(tableName, rowFilter)
+  if (!row) return null
+  return mapReservationToWedding(row, 0)
+}
+
 export async function listWeddings(): Promise<Wedding[]> {
   const tableName = await resolveReservationsTableName()
   const { data, error } = await db().from(tableName).select("*")
@@ -53,6 +73,14 @@ export async function listWeddings(): Promise<Wedding[]> {
 export async function createWedding(input: NewWeddingInput): Promise<Wedding> {
   const tableName = await resolveReservationsTableName()
   const payload: ReservationWrite = {
+    event_type: input.eventType,
+    event_name: input.eventName.trim(),
+    spouse1_first_name: input.spouse1FirstName.trim(),
+    spouse1_last_name: input.spouse1LastName.trim(),
+    spouse2_first_name: input.spouse2FirstName.trim(),
+    spouse2_last_name: input.spouse2LastName.trim(),
+    postal_address: input.postalAddress.trim(),
+    comments: input.comments.trim(),
     couple: input.couple.trim(),
     contact_name: input.contactName.trim(),
     email: input.email.trim(),
@@ -141,6 +169,14 @@ export async function updateWedding(weddingId: number, input: UpdateWeddingInput
     last_activity: "Événement modifié",
   }
 
+  if (typeof input.eventType === "string") patch.event_type = input.eventType
+  if (typeof input.eventName === "string") patch.event_name = input.eventName.trim()
+  if (typeof input.spouse1FirstName === "string") patch.spouse1_first_name = input.spouse1FirstName.trim()
+  if (typeof input.spouse1LastName === "string") patch.spouse1_last_name = input.spouse1LastName.trim()
+  if (typeof input.spouse2FirstName === "string") patch.spouse2_first_name = input.spouse2FirstName.trim()
+  if (typeof input.spouse2LastName === "string") patch.spouse2_last_name = input.spouse2LastName.trim()
+  if (typeof input.postalAddress === "string") patch.postal_address = input.postalAddress.trim()
+  if (typeof input.comments === "string") patch.comments = input.comments.trim()
   if (typeof input.couple === "string") patch.couple = input.couple.trim()
   if (typeof input.contactName === "string") patch.contact_name = input.contactName.trim()
   if (typeof input.email === "string") patch.email = input.email.trim()
@@ -149,6 +185,18 @@ export async function updateWedding(weddingId: number, input: UpdateWeddingInput
   if (typeof input.depositAmount === "string") patch.deposit_amount = parseAmount(input.depositAmount)
   if (typeof input.balanceAmount === "string") patch.balance_amount = parseAmount(input.balanceAmount)
   if (typeof input.autopilot === "boolean") patch.autopilot = input.autopilot
+  if (input.depositPaidDate !== undefined) {
+    patch.deposit_paid_date = normalizeOptionalDate(input.depositPaidDate)
+  }
+  if (input.depositPaymentMethod !== undefined) {
+    patch.deposit_payment_method = normalizeOptionalPaymentMethod(input.depositPaymentMethod)
+  }
+  if (input.balancePaidDate !== undefined) {
+    patch.balance_paid_date = normalizeOptionalDate(input.balancePaidDate)
+  }
+  if (input.balancePaymentMethod !== undefined) {
+    patch.balance_payment_method = normalizeOptionalPaymentMethod(input.balancePaymentMethod)
+  }
   const updatePayload = toTablePayload(tableName, patch)
 
   const { data, error } = await db()
@@ -181,6 +229,33 @@ export async function deleteWedding(weddingId: number) {
     throw new Error(`Supabase delete failed: ${error.message}`)
   }
   return Boolean(data)
+}
+
+export async function markPostEventReminderSent(weddingId: number, isoCalendarDate: string) {
+  const tableName = await resolveReservationsTableName()
+  if (isLegacyTable(tableName)) return null
+
+  const rowFilter = await findRowFilter(tableName, weddingId)
+  if (!rowFilter) return null
+
+  const day = isoCalendarDate.slice(0, 10)
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(day)) return null
+
+  const { data, error } = await db()
+    .from(tableName)
+    .update({
+      post_event_reminder_sent_date: day,
+      last_activity: "Message J+3 envoyé",
+    })
+    .eq(rowFilter.column, rowFilter.value)
+    .select("*")
+    .maybeSingle()
+
+  if (error) {
+    throw new Error(`Supabase post-event mark failed: ${error.message}`)
+  }
+  if (!data) return null
+  return mapReservationToWedding(data)
 }
 
 /** Colonne unique `status` (legacy) ou chaînes FR / EN depuis Supabase. */
@@ -217,7 +292,17 @@ function resolvePaymentFieldStatus(
 
 type ReservationRow = {
   id?: number
+  event_type?: string | null
+  eventType?: string | null
   couple?: string | null
+  event_name?: string | null
+  eventName?: string | null
+  spouse1_first_name?: string | null
+  spouse1_last_name?: string | null
+  spouse2_first_name?: string | null
+  spouse2_last_name?: string | null
+  postal_address?: string | null
+  comments?: string | null
   contact_name?: string | null
   contactName?: string | null
   client_name?: string | null
@@ -234,6 +319,11 @@ type ReservationRow = {
   balanceAmount?: number | string | null
   deposit_status?: PaymentStatus | string | null
   balance_status?: PaymentStatus | string | null
+  deposit_paid_date?: string | null
+  deposit_payment_method?: string | null
+  balance_paid_date?: string | null
+  balance_payment_method?: string | null
+  post_event_reminder_sent_date?: string | null
   autopilot?: boolean | null
   last_activity?: string | null
   lastActivity?: string | null
@@ -242,6 +332,14 @@ type ReservationRow = {
 }
 
 type ReservationWrite = {
+  event_type?: EventType
+  event_name?: string
+  spouse1_first_name?: string
+  spouse1_last_name?: string
+  spouse2_first_name?: string
+  spouse2_last_name?: string
+  postal_address?: string
+  comments?: string
   couple?: string
   contact_name?: string
   email?: string
@@ -251,6 +349,10 @@ type ReservationWrite = {
   balance_amount?: number
   deposit_status?: PaymentStatus
   balance_status?: PaymentStatus
+  deposit_paid_date?: string | null
+  deposit_payment_method?: string | null
+  balance_paid_date?: string | null
+  balance_payment_method?: string | null
   autopilot?: boolean
   message_template?: string | null
   last_activity?: string
@@ -265,6 +367,9 @@ function mapReservationToWedding(row: ReservationRow, index: number): Wedding {
 
   return {
     id: stableId,
+    eventType: parseEventType(row.event_type ?? row.eventType),
+    ...mapReservationDetails(row),
+    ...mapReservationPaymentTracking(row),
     couple: row.couple ?? coupleFallback,
     contactName,
     email,
@@ -280,6 +385,44 @@ function mapReservationToWedding(row: ReservationRow, index: number): Wedding {
     },
     autopilot: row.autopilot ?? false,
     lastActivity: row.last_activity ?? row.lastActivity ?? "Synchronisé depuis Supabase",
+    postEventReminderSentDate: normalizeStoredDate(row.post_event_reminder_sent_date),
+  }
+}
+
+function mapReservationPaymentTracking(row: ReservationRow): WeddingPaymentTracking {
+  return {
+    depositPaidDate: normalizeStoredDate(row.deposit_paid_date),
+    depositPaymentMethod: parsePaymentMethod(row.deposit_payment_method),
+    balancePaidDate: normalizeStoredDate(row.balance_paid_date),
+    balancePaymentMethod: parsePaymentMethod(row.balance_payment_method),
+  }
+}
+
+function normalizeStoredDate(raw: string | null | undefined): string {
+  if (!raw) return ""
+  return raw.slice(0, 10)
+}
+
+function normalizeOptionalDate(raw: string | null): string | null {
+  const trimmed = raw?.trim() ?? ""
+  if (!trimmed) return null
+  return trimmed.slice(0, 10)
+}
+
+function normalizeOptionalPaymentMethod(raw: PaymentMethod | ""): string | null {
+  const method = parsePaymentMethod(raw)
+  return method || null
+}
+
+function mapReservationDetails(row: ReservationRow): WeddingDetailFields {
+  return {
+    eventName: row.event_name ?? row.eventName ?? "",
+    spouse1FirstName: row.spouse1_first_name ?? "",
+    spouse1LastName: row.spouse1_last_name ?? "",
+    spouse2FirstName: row.spouse2_first_name ?? "",
+    spouse2LastName: row.spouse2_last_name ?? "",
+    postalAddress: row.postal_address ?? "",
+    comments: row.comments ?? "",
   }
 }
 

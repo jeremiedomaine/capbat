@@ -11,7 +11,7 @@ export default function Page() {
         <div className="p-8 max-w-7xl mx-auto space-y-8">
           <DashboardHeader />
           <KpiCards />
-          <WeddingsTable />
+          <WeddingsTable mode="dashboard" />
         </div>
       </main>
     </div>

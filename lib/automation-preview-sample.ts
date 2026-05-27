@@ -3,6 +3,19 @@ import type { Wedding } from "@/lib/weddings-store"
 /** Fictif, aligné sur l’aperçu des automatisations (variables). */
 export const AUTOMATION_PREVIEW_SAMPLE_WEDDING: Wedding = {
   id: 0,
+  eventType: "wedding",
+  eventName: "Mariage Camille & Jordan",
+  spouse1FirstName: "Camille",
+  spouse1LastName: "Dupont",
+  spouse2FirstName: "Jordan",
+  spouse2LastName: "Martin",
+  postalAddress: "",
+  comments: "",
+  depositPaidDate: "",
+  depositPaymentMethod: "",
+  balancePaidDate: "",
+  balancePaymentMethod: "",
+  postEventReminderSentDate: "",
   couple: "Camille & Jordan",
   contactName: "Camille Dupont",
   email: "client@exemple.fr",
@@ -15,3 +28,4 @@ export const AUTOMATION_PREVIEW_SAMPLE_WEDDING: Wedding = {
 }
 
 export const AUTOMATION_PREVIEW_DAYS_AHEAD = 30
+export const AUTOMATION_PREVIEW_DAYS_AFTER = 3

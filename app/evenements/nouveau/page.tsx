@@ -8,14 +8,25 @@ import { toast } from "sonner"
 import { Sidebar } from "@/components/sidebar"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Input } from "@/components/ui/input"
+import { Textarea } from "@/components/ui/textarea"
 import { Switch } from "@/components/ui/switch"
 import { Button } from "@/components/ui/button"
-import { validateNewWeddingInput } from "@/lib/form-validation"
+import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group"
+import { validateNewEventInput } from "@/lib/form-validation"
+import { type EventType, getEventDateLabel } from "@/lib/event-types"
+import { buildDashboardCouple, buildPrimaryContactName } from "@/lib/wedding-display"
 
 export default function NewEventPage() {
   const router = useRouter()
-  const [couple, setCouple] = useState("")
+  const [eventType, setEventType] = useState<EventType>("wedding")
+  const [eventName, setEventName] = useState("")
+  const [spouse1FirstName, setSpouse1FirstName] = useState("")
+  const [spouse1LastName, setSpouse1LastName] = useState("")
+  const [spouse2FirstName, setSpouse2FirstName] = useState("")
+  const [spouse2LastName, setSpouse2LastName] = useState("")
   const [contactName, setContactName] = useState("")
+  const [postalAddress, setPostalAddress] = useState("")
+  const [comments, setComments] = useState("")
   const [email, setEmail] = useState("")
   const [phone, setPhone] = useState("")
   const [eventDate, setEventDate] = useState("")
@@ -28,8 +39,14 @@ export default function NewEventPage() {
   const handleSubmit = async (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault()
     setError("")
-    const validationError = validateNewWeddingInput({
-      couple,
+
+    const validationError = validateNewEventInput({
+      eventType,
+      eventName,
+      spouse1FirstName,
+      spouse1LastName,
+      spouse2FirstName,
+      spouse2LastName,
       contactName,
       email,
       phone,
@@ -43,6 +60,19 @@ export default function NewEventPage() {
       return
     }
 
+    const couple = buildDashboardCouple({
+      eventType,
+      eventName,
+      spouse1FirstName,
+      spouse2FirstName,
+    })
+    const resolvedContactName = buildPrimaryContactName({
+      eventType,
+      spouse1FirstName,
+      spouse1LastName,
+      contactName,
+    })
+
     setIsSubmitting(true)
 
     try {
@@ -50,8 +80,16 @@ export default function NewEventPage() {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          couple: couple.trim(),
-          contactName: contactName.trim(),
+          eventType,
+          eventName: eventName.trim(),
+          spouse1FirstName: spouse1FirstName.trim(),
+          spouse1LastName: spouse1LastName.trim(),
+          spouse2FirstName: spouse2FirstName.trim(),
+          spouse2LastName: spouse2LastName.trim(),
+          postalAddress: postalAddress.trim(),
+          comments: comments.trim(),
+          couple,
+          contactName: resolvedContactName,
           email: email.trim(),
           phone: phone.trim(),
           eventDate,
@@ -61,8 +99,9 @@ export default function NewEventPage() {
         }),
       })
 
+      const payload = (await response.json()) as { wedding?: { id: number }; error?: string }
+
       if (!response.ok) {
-        const payload = (await response.json()) as { error?: string }
         const msg = payload.error ?? "Impossible de créer l'événement."
         setError(msg)
         toast.error("Création impossible", { description: msg })
@@ -70,9 +109,9 @@ export default function NewEventPage() {
       }
 
       toast.success("Événement créé", {
-        description: "Il apparaît dans votre planning.",
+        description: "La fiche détaillée est disponible.",
       })
-      router.push("/evenements")
+      router.push(payload.wedding ? `/evenements/${payload.wedding.id}` : "/evenements")
       router.refresh()
     } catch {
       const msg = "Une erreur réseau est survenue. Veuillez réessayer."
@@ -91,7 +130,8 @@ export default function NewEventPage() {
           <header className="space-y-2">
             <h1 className="text-2xl font-semibold text-gray-900">Nouvel événement</h1>
             <p className="text-sm text-gray-500">
-              Créez un nouveau mariage et enregistrez-le. Personnalisez les messages depuis Automatisations.
+              Les informations détaillées seront disponibles sur la fiche de l&apos;événement. Le
+              tableau de bord reste synthétique.
             </p>
           </header>
 
@@ -99,21 +139,87 @@ export default function NewEventPage() {
             <CardHeader>
               <CardTitle>Informations de l&apos;événement</CardTitle>
               <CardDescription>
-                Complétez les champs pour ajouter ce mariage à votre planning.
+                Choisissez le type d&apos;événement, puis complétez les champs pour l&apos;ajouter à
+                votre planning.
               </CardDescription>
             </CardHeader>
             <CardContent>
-              <form onSubmit={handleSubmit} className="space-y-5">
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                  <div className="space-y-2">
-                    <label className="text-sm font-medium text-gray-800">Couple</label>
-                    <Input
-                      value={couple}
-                      onChange={(e) => setCouple(e.target.value)}
-                      placeholder="Ex: Laura & Mehdi"
-                      required
-                    />
+              <form onSubmit={handleSubmit} className="space-y-6">
+                <div className="space-y-2">
+                  <label className="text-sm font-medium text-gray-800">Type d&apos;événement</label>
+                  <ToggleGroup
+                    type="single"
+                    variant="outline"
+                    value={eventType}
+                    onValueChange={(value) => {
+                      if (value === "wedding" || value === "other") setEventType(value)
+                    }}
+                    className="w-full max-w-md"
+                  >
+                    <ToggleGroupItem value="wedding" className="flex-1">
+                      Mariage
+                    </ToggleGroupItem>
+                    <ToggleGroupItem value="other" className="flex-1">
+                      Autre événement
+                    </ToggleGroupItem>
+                  </ToggleGroup>
+                </div>
+
+                <div className="space-y-2">
+                  <label className="text-sm font-medium text-gray-800">Nom de l&apos;événement</label>
+                  <Input
+                    value={eventName}
+                    onChange={(e) => setEventName(e.target.value)}
+                    placeholder={
+                      eventType === "wedding"
+                        ? "Ex: Mariage Laura & Mehdi"
+                        : "Ex: Séminaire entreprise ACME"
+                    }
+                    required
+                  />
+                </div>
+
+                {eventType === "wedding" ? (
+                  <div className="space-y-4 rounded-lg border border-gray-100 p-4">
+                    <p className="text-sm font-medium text-gray-900">Les mariés</p>
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                      <div className="space-y-3">
+                        <p className="text-xs font-medium uppercase tracking-wide text-gray-400">
+                          Marié(e) 1
+                        </p>
+                        <Input
+                          value={spouse1FirstName}
+                          onChange={(e) => setSpouse1FirstName(e.target.value)}
+                          placeholder="Prénom"
+                          required
+                        />
+                        <Input
+                          value={spouse1LastName}
+                          onChange={(e) => setSpouse1LastName(e.target.value)}
+                          placeholder="Nom"
+                          required
+                        />
+                      </div>
+                      <div className="space-y-3">
+                        <p className="text-xs font-medium uppercase tracking-wide text-gray-400">
+                          Marié(e) 2
+                        </p>
+                        <Input
+                          value={spouse2FirstName}
+                          onChange={(e) => setSpouse2FirstName(e.target.value)}
+                          placeholder="Prénom"
+                          required
+                        />
+                        <Input
+                          value={spouse2LastName}
+                          onChange={(e) => setSpouse2LastName(e.target.value)}
+                          placeholder="Nom"
+                          required
+                        />
+                      </div>
+                    </div>
                   </div>
+                ) : (
                   <div className="space-y-2">
                     <label className="text-sm font-medium text-gray-800">Nom du contact</label>
                     <Input
@@ -123,6 +229,29 @@ export default function NewEventPage() {
                       required
                     />
                   </div>
+                )}
+
+                <div className="space-y-2">
+                  <label className="text-sm font-medium text-gray-800">Adresse postale</label>
+                  <Textarea
+                    value={postalAddress}
+                    onChange={(e) => setPostalAddress(e.target.value)}
+                    placeholder="Numéro, rue, code postal, ville"
+                    rows={3}
+                  />
+                </div>
+
+                <div className="space-y-2">
+                  <label className="text-sm font-medium text-gray-800">Commentaire</label>
+                  <Textarea
+                    value={comments}
+                    onChange={(e) => setComments(e.target.value)}
+                    placeholder="Notes internes, demandes particulières, informations utiles…"
+                    rows={4}
+                  />
+                </div>
+
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                   <div className="space-y-2">
                     <label className="text-sm font-medium text-gray-800">Adresse mail</label>
                     <Input
@@ -144,7 +273,9 @@ export default function NewEventPage() {
                     />
                   </div>
                   <div className="space-y-2">
-                    <label className="text-sm font-medium text-gray-800">Date du mariage</label>
+                    <label className="text-sm font-medium text-gray-800">
+                      {getEventDateLabel(eventType)}
+                    </label>
                     <Input
                       type="date"
                       value={eventDate}

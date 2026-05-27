@@ -4,6 +4,11 @@ import { useCallback, useEffect, useMemo, useState } from "react"
 import { toast } from "sonner"
 import { Card, CardContent } from "@/components/ui/card"
 import { CalendarDays, Banknote, BellRing } from "lucide-react"
+import {
+  getTodayCalendarIsoKey,
+  parseEventDate,
+  resolveEventDateKey,
+} from "@/lib/event-dates"
 
 type PaymentStatus = "pending" | "paid" | "to_collect"
 type WeddingRow = {
@@ -155,34 +160,4 @@ function parseEuroAmount(value: string) {
 
 function formatEuro(value: number) {
   return `${new Intl.NumberFormat("fr-FR").format(Math.round(value))} €`
-}
-
-function parseEventDate(value: string) {
-  if (/^\d{4}-\d{2}-\d{2}$/.test(value)) {
-    const [year, month, day] = value.split("-").map(Number)
-    return new Date(year, month - 1, day)
-  }
-  return new Date(value)
-}
-
-/** YYYY-MM-DD au calendrier local (aligné filtre J-N / tableau). */
-function getTodayCalendarIsoKey() {
-  const d = new Date()
-  d.setHours(12, 0, 0, 0)
-  const y = d.getFullYear()
-  const m = String(d.getMonth() + 1).padStart(2, "0")
-  const day = String(d.getDate()).padStart(2, "0")
-  return `${y}-${m}-${day}`
-}
-
-function resolveEventDateKey(raw: string): string | null {
-  const trimmed = raw.trim()
-  const head = trimmed.slice(0, 10)
-  if (/^\d{4}-\d{2}-\d{2}$/.test(head)) return head
-  const d = parseEventDate(trimmed)
-  if (Number.isNaN(d.getTime())) return null
-  const y = d.getFullYear()
-  const m = String(d.getMonth() + 1).padStart(2, "0")
-  const day = String(d.getDate()).padStart(2, "0")
-  return `${y}-${m}-${day}`
 }

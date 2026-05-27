@@ -43,9 +43,35 @@ import {
 } from "@/components/ui/table"
 import { EmptyState } from "@/components/empty-state"
 import { validateEditWeddingInput } from "@/lib/form-validation"
+import {
+  EVENT_TYPE_LABELS,
+  type EventType,
+  getEventNameLabel,
+} from "@/lib/event-types"
+import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group"
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select"
+import {
+  extractEventYears,
+  isUpcomingEvent,
+  pickDefaultSeasonYear,
+  getEventYear,
+} from "@/lib/event-dates"
+
+type WeddingsTableMode = "dashboard" | "list"
+
+type WeddingsTableProps = {
+  mode?: WeddingsTableMode
+}
 
 type WeddingRow = {
   id: number
+  eventType: EventType
   couple: string
   contactName: string
   email: string
@@ -63,10 +89,12 @@ type PendingOp =
   | { rowId: number; kind: "deposit" | "balance" | "autopilot" }
   | null
 
-export function WeddingsTable() {
+export function WeddingsTable({ mode = "dashboard" }: WeddingsTableProps) {
   const [rows, setRows] = useState<WeddingRow[]>([])
   const [loading, setLoading] = useState(true)
+  const [selectedYear, setSelectedYear] = useState(() => new Date().getFullYear())
   const [editingRow, setEditingRow] = useState<WeddingRow | null>(null)
+  const [editEventType, setEditEventType] = useState<EventType>("wedding")
   const [editCouple, setEditCouple] = useState("")
   const [editContactName, setEditContactName] = useState("")
   const [editEmail, setEditEmail] = useState("")
@@ -144,10 +172,29 @@ export function WeddingsTable() {
     refreshRows()
   }, [refreshRows])
 
-  const sortedRows = useMemo(
-    () => [...rows].sort((a, b) => a.eventDate.localeCompare(b.eventDate)),
-    [rows]
-  )
+  useEffect(() => {
+    if (mode !== "list" || rows.length === 0) return
+    const years = extractEventYears(rows)
+    setSelectedYear((prev) => (years.includes(prev) ? prev : pickDefaultSeasonYear(years)))
+  }, [rows, mode])
+
+  const availableYears = useMemo(() => {
+    const current = new Date().getFullYear()
+    const merged = new Set([...extractEventYears(rows), current, selectedYear])
+    return [...merged].sort((a, b) => b - a)
+  }, [rows, selectedYear])
+
+  const displayRows = useMemo(() => {
+    let filtered = rows
+    if (mode === "dashboard") {
+      filtered = rows.filter((row) => isUpcomingEvent(row.eventDate))
+    } else {
+      filtered = rows.filter((row) => getEventYear(row.eventDate) === selectedYear)
+    }
+    return [...filtered].sort((a, b) => a.eventDate.localeCompare(b.eventDate))
+  }, [rows, mode, selectedYear])
+
+  const sortedRows = displayRows
 
   const updatePaymentStatus = async (
     weddingId: number,
@@ -184,23 +231,63 @@ export function WeddingsTable() {
   }
 
   const showEmpty = !loading && !loadError && sortedRows.length === 0
+  const hasAnyEvents = rows.length > 0
+  const emptyTitle =
+    mode === "list" && hasAnyEvents
+      ? `Aucun événement en ${selectedYear}`
+      : mode === "dashboard"
+        ? "Aucun événement à venir"
+        : "Aucun événement enregistré"
+  const emptyDescription =
+    mode === "list" && hasAnyEvents
+      ? "Changez d’année pour consulter une autre saison, ou ajoutez un événement sur cette période."
+      : mode === "dashboard"
+        ? "Les événements passés restent visibles dans la liste complète, filtrable par année."
+        : "Ajoutez votre premier événement pour voir le planning, les encaissements et les relances automatiques ici."
+  const subtitle =
+    mode === "dashboard"
+      ? loading
+        ? "Chargement..."
+        : `${sortedRows.length} événement${sortedRows.length > 1 ? "s" : ""} à venir`
+      : loading
+        ? "Chargement..."
+        : `${sortedRows.length} événement${sortedRows.length > 1 ? "s" : ""} en ${selectedYear}`
 
   return (
     <>
       <Card className="bg-white border-gray-100 shadow-sm">
         <CardHeader className="px-6 pt-6 pb-4 border-b border-gray-50">
-          <div className="flex items-center justify-between">
+          <div className="flex items-center justify-between gap-4">
             <div>
               <CardTitle className="text-base font-semibold text-gray-900">
-                Prochains Mariages
+                {mode === "dashboard" ? "Prochains événements" : "Saison"}
               </CardTitle>
-              <p className="text-sm text-gray-400 mt-0.5">
-                {loading ? "Chargement..." : `${sortedRows.length} événements planifiés`}
-              </p>
+              <p className="text-sm text-gray-400 mt-0.5">{subtitle}</p>
             </div>
-            <Badge variant="outline" className="text-xs text-gray-500 border-gray-200">
-              2026
-            </Badge>
+            {mode === "list" ? (
+              <Select
+                value={String(selectedYear)}
+                onValueChange={(value) => setSelectedYear(Number.parseInt(value, 10))}
+              >
+                <SelectTrigger className="w-[120px] bg-white">
+                  <SelectValue placeholder="Année" />
+                </SelectTrigger>
+                <SelectContent>
+                  {(availableYears.length > 0
+                    ? availableYears
+                    : [selectedYear]
+                  ).map((year) => (
+                    <SelectItem key={year} value={String(year)}>
+                      {year}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            ) : (
+              <Badge variant="outline" className="text-xs text-gray-500 border-gray-200">
+                À venir
+              </Badge>
+            )}
           </div>
         </CardHeader>
         <CardContent className="p-0">
@@ -232,8 +319,8 @@ export function WeddingsTable() {
             <div className="p-6">
               <EmptyState
                 icon={CalendarPlus}
-                title="Aucun mariage enregistré"
-                description="Ajoutez votre premier événement pour voir le planning, les encaissements et les relances automatiques ici."
+                title={emptyTitle}
+                description={emptyDescription}
               >
                 <Button asChild className="bg-emerald-600 hover:bg-emerald-700">
                   <Link href="/evenements/nouveau">Créer un événement</Link>
@@ -250,7 +337,7 @@ export function WeddingsTable() {
               <TableHeader>
                 <TableRow className="border-gray-50 hover:bg-transparent">
                   <TableHead className="px-6 py-3.5 text-xs font-medium text-gray-400 uppercase tracking-wider">
-                    Mariés
+                    Événement
                   </TableHead>
                   <TableHead className="px-4 py-3.5 text-xs font-medium text-gray-400 uppercase tracking-wider">
                     Acompte
@@ -278,7 +365,26 @@ export function WeddingsTable() {
                     }`}
                   >
                     <TableCell className="px-6 py-4">
-                      <p className="font-semibold text-gray-900 text-sm">{row.couple}</p>
+                      <div className="flex items-center gap-2 mb-1">
+                        <Badge
+                          variant="outline"
+                          className={
+                            row.eventType === "other"
+                              ? "border-sky-200 bg-sky-50 text-sky-700"
+                              : "border-rose-200 bg-rose-50 text-rose-700"
+                          }
+                        >
+                          {EVENT_TYPE_LABELS[row.eventType ?? "wedding"]}
+                        </Badge>
+                      </div>
+                      <p className="font-semibold text-gray-900 text-sm">
+                        <Link
+                          href={`/evenements/${row.id}`}
+                          className="hover:text-blue-600 hover:underline underline-offset-2"
+                        >
+                          {row.couple}
+                        </Link>
+                      </p>
                       <p className="text-xs text-gray-500 mt-0.5">
                         Contact: {row.contactName || "—"}
                       </p>
@@ -295,6 +401,7 @@ export function WeddingsTable() {
                         <StatusBadge
                           status={row.deposit.status}
                           options={["pending", "paid"]}
+                          mode={mode}
                           disabled={Boolean(pendingOp?.rowId === row.id && pendingOp.kind === "deposit")}
                           onSelect={(status) => updatePaymentStatus(row.id, "deposit", status)}
                         />
@@ -309,6 +416,7 @@ export function WeddingsTable() {
                         <StatusBadge
                           status={row.balance.status}
                           options={["pending", "paid", "to_collect"]}
+                          mode={mode}
                           disabled={Boolean(pendingOp?.rowId === row.id && pendingOp.kind === "balance")}
                           onSelect={(status) => updatePaymentStatus(row.id, "balance", status)}
                         />
@@ -370,7 +478,28 @@ export function WeddingsTable() {
           </DialogHeader>
           <div className="space-y-4">
             <div className="space-y-2">
-              <label className="text-sm font-medium text-gray-800">Couple</label>
+              <label className="text-sm font-medium text-gray-800">Type d&apos;événement</label>
+              <ToggleGroup
+                type="single"
+                variant="outline"
+                value={editEventType}
+                onValueChange={(value) => {
+                  if (value === "wedding" || value === "other") setEditEventType(value)
+                }}
+                className="w-full max-w-md"
+              >
+                <ToggleGroupItem value="wedding" className="flex-1">
+                  Mariage
+                </ToggleGroupItem>
+                <ToggleGroupItem value="other" className="flex-1">
+                  Autre événement
+                </ToggleGroupItem>
+              </ToggleGroup>
+            </div>
+            <div className="space-y-2">
+              <label className="text-sm font-medium text-gray-800">
+                {getEventNameLabel(editEventType)}
+              </label>
               <Input value={editCouple} onChange={(event) => setEditCouple(event.target.value)} />
             </div>
             <div className="space-y-2">
@@ -493,6 +622,7 @@ export function WeddingsTable() {
 
   function openEditDialog(row: WeddingRow) {
     setEditingRow(row)
+    setEditEventType(row.eventType ?? "wedding")
     setEditCouple(row.couple)
     setEditContactName(row.contactName)
     setEditEmail(row.email)
@@ -511,6 +641,7 @@ export function WeddingsTable() {
   async function handleSaveEdit() {
     if (!editingRow) return
     const err = validateEditWeddingInput({
+      eventType: editEventType,
       couple: editCouple,
       contactName: editContactName,
       email: editEmail,
@@ -530,6 +661,7 @@ export function WeddingsTable() {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
+          eventType: editEventType,
           couple: editCouple.trim(),
           contactName: editContactName.trim(),
           email: editEmail.trim(),
@@ -585,13 +717,14 @@ export function WeddingsTable() {
 type StatusBadgeProps = {
   status: PaymentStatus
   options: PaymentStatus[]
+  mode?: WeddingsTableMode
   disabled?: boolean
   onSelect: (status: PaymentStatus) => void
 }
 
-function StatusBadge({ status, options, disabled, onSelect }: StatusBadgeProps) {
+function StatusBadge({ status, options, mode = "dashboard", disabled, onSelect }: StatusBadgeProps) {
   const label = getStatusLabel(status)
-  const className = getStatusClassName(status)
+  const className = getStatusClassName(status, mode)
 
   return (
     <DropdownMenu>
@@ -621,9 +754,13 @@ function getStatusLabel(status: PaymentStatus) {
   return "En attente"
 }
 
-function getStatusClassName(status: PaymentStatus) {
+function getStatusClassName(status: PaymentStatus, mode: WeddingsTableMode = "dashboard") {
   if (status === "paid") return "bg-emerald-50 text-emerald-600"
-  if (status === "to_collect") return "bg-orange-50 text-orange-500"
+  if (status === "to_collect") {
+    return mode === "dashboard"
+      ? "bg-red-50 text-red-600"
+      : "bg-orange-50 text-orange-500"
+  }
   return "bg-amber-50 text-amber-600"
 }
 
