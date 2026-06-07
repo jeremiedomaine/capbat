@@ -1,4 +1,4 @@
--- Type d'événement (mariage ou autre usage du domaine).
+-- Type d'événement : mariage, gîte ou autre.
 -- À exécuter une fois dans le SQL Editor Supabase si la colonne n'existe pas encore.
 
 alter table reservations
@@ -9,4 +9,4 @@ alter table reservations
 
 alter table reservations
   add constraint reservations_event_type_check
-  check (event_type in ('wedding', 'other'));
+  check (event_type in ('wedding', 'gite', 'other'));

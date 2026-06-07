@@ -1,4 +1,4 @@
-import type { EventType } from "@/lib/event-types"
+import { isWeddingEventType, type EventType } from "@/lib/event-types"
 
 type SpouseInput = {
   eventType: EventType
@@ -9,7 +9,7 @@ type SpouseInput = {
 }
 
 export function buildDashboardCouple(input: SpouseInput): string {
-  if (input.eventType === "wedding") {
+  if (isWeddingEventType(input.eventType)) {
     const first = input.spouse1FirstName.trim()
     const second = input.spouse2FirstName.trim()
     if (first && second) return `${first} & ${second}`
@@ -25,7 +25,7 @@ export function buildPrimaryContactName(input: {
   spouse1LastName: string
   contactName?: string
 }): string {
-  if (input.eventType === "wedding") {
+  if (isWeddingEventType(input.eventType)) {
     return [input.spouse1FirstName, input.spouse1LastName]
       .map((part) => part.trim())
       .filter(Boolean)

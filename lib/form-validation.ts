@@ -1,6 +1,6 @@
 /** Validation légère côté client (complète les attributs HTML natifs). */
 
-import { type EventType } from "@/lib/event-types"
+import { isWeddingEventType, type EventType } from "@/lib/event-types"
 
 export const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
 
@@ -37,7 +37,7 @@ export function validateNewEventInput(input: NewEventFormInput): string | null {
 
   if (!input.eventName.trim()) return "Indiquez le nom de l'événement."
 
-  if (eventType === "wedding") {
+  if (isWeddingEventType(eventType)) {
     if (!input.spouse1FirstName.trim() || !input.spouse1LastName.trim()) {
       return "Indiquez le prénom et le nom du premier marié."
     }

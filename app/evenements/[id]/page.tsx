@@ -17,7 +17,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select"
-import { EVENT_TYPE_LABELS, type EventType } from "@/lib/event-types"
+import { EVENT_TYPE_LABELS, getEventTypeBadgeClass, isWeddingEventType, type EventType } from "@/lib/event-types"
 import { formatEventDateFr } from "@/lib/event-dates"
 import {
   PAYMENT_METHOD_LABELS,
@@ -178,11 +178,7 @@ export default function EventDetailPage() {
                 <div className="flex items-center gap-2">
                   <Badge
                     variant="outline"
-                    className={
-                      wedding.eventType === "other"
-                        ? "border-sky-200 bg-sky-50 text-sky-700"
-                        : "border-rose-200 bg-rose-50 text-rose-700"
-                    }
+                    className={getEventTypeBadgeClass(wedding.eventType)}
                   >
                     {EVENT_TYPE_LABELS[wedding.eventType]}
                   </Badge>
@@ -208,7 +204,7 @@ export default function EventDetailPage() {
                 </CardContent>
               </Card>
 
-              {wedding.eventType === "wedding" ? (
+              {isWeddingEventType(wedding.eventType) ? (
                 <Card>
                   <CardHeader>
                     <CardTitle className="text-base">Les mariés</CardTitle>

@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server"
 import { gateInternalToolAccess } from "@/lib/auth/internal-session"
-import { parseEventType } from "@/lib/event-types"
+import { isWeddingEventType, parseEventType, requiresContactName } from "@/lib/event-types"
 import { createWedding, listWeddings } from "@/lib/weddings-store"
 
 export async function GET() {
@@ -58,12 +58,12 @@ export async function POST(request: Request) {
       )
     }
 
-    if (eventType === "other" && !body.contactName?.trim()) {
+    if (requiresContactName(eventType) && !body.contactName?.trim()) {
       return NextResponse.json({ error: "Le nom du contact est obligatoire." }, { status: 400 })
     }
 
     if (
-      eventType === "wedding" &&
+      isWeddingEventType(eventType) &&
       (!body.spouse1FirstName?.trim() ||
         !body.spouse1LastName?.trim() ||
         !body.spouse2FirstName?.trim() ||

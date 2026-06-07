@@ -13,7 +13,13 @@ import { Switch } from "@/components/ui/switch"
 import { Button } from "@/components/ui/button"
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group"
 import { validateNewEventInput } from "@/lib/form-validation"
-import { type EventType, getEventDateLabel } from "@/lib/event-types"
+import {
+  isEventType,
+  isWeddingEventType,
+  type EventType,
+  getEventDateLabel,
+  getNewEventNamePlaceholder,
+} from "@/lib/event-types"
 import { buildDashboardCouple, buildPrimaryContactName } from "@/lib/wedding-display"
 
 export default function NewEventPage() {
@@ -152,12 +158,15 @@ export default function NewEventPage() {
                     variant="outline"
                     value={eventType}
                     onValueChange={(value) => {
-                      if (value === "wedding" || value === "other") setEventType(value)
+                      if (isEventType(value)) setEventType(value)
                     }}
-                    className="w-full max-w-md"
+                    className="w-full max-w-xl grid grid-cols-3"
                   >
                     <ToggleGroupItem value="wedding" className="flex-1">
                       Mariage
+                    </ToggleGroupItem>
+                    <ToggleGroupItem value="gite" className="flex-1">
+                      Gîte
                     </ToggleGroupItem>
                     <ToggleGroupItem value="other" className="flex-1">
                       Autre événement
@@ -170,16 +179,12 @@ export default function NewEventPage() {
                   <Input
                     value={eventName}
                     onChange={(e) => setEventName(e.target.value)}
-                    placeholder={
-                      eventType === "wedding"
-                        ? "Ex: Mariage Laura & Mehdi"
-                        : "Ex: Séminaire entreprise ACME"
-                    }
+                    placeholder={getNewEventNamePlaceholder(eventType)}
                     required
                   />
                 </div>
 
-                {eventType === "wedding" ? (
+                {isWeddingEventType(eventType) ? (
                   <div className="space-y-4 rounded-lg border border-gray-100 p-4">
                     <p className="text-sm font-medium text-gray-900">Les mariés</p>
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-4">

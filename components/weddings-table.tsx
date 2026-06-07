@@ -45,6 +45,8 @@ import { EmptyState } from "@/components/empty-state"
 import { validateEditWeddingInput } from "@/lib/form-validation"
 import {
   EVENT_TYPE_LABELS,
+  getEventTypeBadgeClass,
+  isEventType,
   type EventType,
   getEventNameLabel,
 } from "@/lib/event-types"
@@ -368,11 +370,7 @@ export function WeddingsTable({ mode = "dashboard" }: WeddingsTableProps) {
                       <div className="flex items-center gap-2 mb-1">
                         <Badge
                           variant="outline"
-                          className={
-                            row.eventType === "other"
-                              ? "border-sky-200 bg-sky-50 text-sky-700"
-                              : "border-rose-200 bg-rose-50 text-rose-700"
-                          }
+                          className={getEventTypeBadgeClass(row.eventType ?? "wedding")}
                         >
                           {EVENT_TYPE_LABELS[row.eventType ?? "wedding"]}
                         </Badge>
@@ -484,12 +482,15 @@ export function WeddingsTable({ mode = "dashboard" }: WeddingsTableProps) {
                 variant="outline"
                 value={editEventType}
                 onValueChange={(value) => {
-                  if (value === "wedding" || value === "other") setEditEventType(value)
+                  if (isEventType(value)) setEditEventType(value)
                 }}
-                className="w-full max-w-md"
+                className="w-full max-w-xl grid grid-cols-3"
               >
                 <ToggleGroupItem value="wedding" className="flex-1">
                   Mariage
+                </ToggleGroupItem>
+                <ToggleGroupItem value="gite" className="flex-1">
+                  Gîte
                 </ToggleGroupItem>
                 <ToggleGroupItem value="other" className="flex-1">
                   Autre événement
