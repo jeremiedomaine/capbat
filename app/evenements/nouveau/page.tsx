@@ -39,6 +39,7 @@ export default function NewEventPage() {
   const [depositAmount, setDepositAmount] = useState("")
   const [balanceAmount, setBalanceAmount] = useState("")
   const [autopilot, setAutopilot] = useState(true)
+  const [generateInvoices, setGenerateInvoices] = useState(true)
   const [isSubmitting, setIsSubmitting] = useState(false)
   const [error, setError] = useState("")
 
@@ -102,10 +103,15 @@ export default function NewEventPage() {
           depositAmount,
           balanceAmount,
           autopilot,
+          generateInvoices,
         }),
       })
 
-      const payload = (await response.json()) as { wedding?: { id: number }; error?: string }
+      const payload = (await response.json()) as {
+        wedding?: { id: number }
+        invoicesCreated?: number
+        error?: string
+      }
 
       if (!response.ok) {
         const msg = payload.error ?? "Impossible de créer l'événement."
@@ -115,7 +121,10 @@ export default function NewEventPage() {
       }
 
       toast.success("Événement créé", {
-        description: "La fiche détaillée est disponible.",
+        description:
+          payload.invoicesCreated && payload.invoicesCreated > 0
+            ? `${payload.invoicesCreated} facture(s) brouillon créée(s).`
+            : "La fiche détaillée est disponible.",
       })
       router.push(payload.wedding ? `/evenements/${payload.wedding.id}` : "/evenements")
       router.refresh()
@@ -321,6 +330,17 @@ export default function NewEventPage() {
                     </p>
                   </div>
                   <Switch checked={autopilot} onCheckedChange={setAutopilot} />
+                </div>
+
+                <div className="flex items-center justify-between rounded-lg border border-gray-100 p-4">
+                  <div>
+                    <p className="text-sm font-medium text-gray-800">Factures brouillon</p>
+                    <p className="text-xs text-gray-500">
+                      Crée automatiquement les factures d&apos;acompte et de solde (modifiables dans
+                      Facturation).
+                    </p>
+                  </div>
+                  <Switch checked={generateInvoices} onCheckedChange={setGenerateInvoices} />
                 </div>
 
                 {error ? <p className="text-sm text-red-600">{error}</p> : null}

@@ -1,7 +1,9 @@
 import { NextResponse } from "next/server"
 import { gateInternalToolAccess } from "@/lib/auth/internal-session"
 import { generateInvoicesForWeddings } from "@/lib/invoice-generate"
+import { buildIssuerFromSettings } from "@/lib/invoice-issuer"
 import type { InvoiceParty, InvoiceType } from "@/lib/invoice-types"
+import { getWorkspaceSettings } from "@/lib/workspace-settings-store"
 
 export async function POST(request: Request) {
   try {
@@ -16,7 +18,13 @@ export async function POST(request: Request) {
       dueInDays?: number
     }
 
-    if (!body.issuer?.name || !body.issuer.email) {
+    const settings = await getWorkspaceSettings()
+    const template = settings.invoiceTemplate
+    const issuer = body.issuer?.name && body.issuer.email
+      ? body.issuer
+      : buildIssuerFromSettings(settings)
+
+    if (!issuer.name || !issuer.email) {
       return NextResponse.json(
         { error: "Les coordonnées de l'émetteur (nom, e-mail) sont obligatoires." },
         { status: 400 }
@@ -27,9 +35,10 @@ export async function POST(request: Request) {
     const result = await generateInvoicesForWeddings({
       types,
       weddingIds: body.weddingIds,
-      issuer: body.issuer,
-      vatRate: body.vatRate,
-      dueInDays: body.dueInDays,
+      issuer,
+      vatRate: body.vatRate ?? template.defaultVatRate,
+      dueInDays: body.dueInDays ?? template.defaultDueDays,
+      template,
     })
 
     return NextResponse.json(result, { status: 201 })

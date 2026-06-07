@@ -1,10 +1,13 @@
 "use client"
 
+import Link from "next/link"
 import { useCallback, useEffect, useMemo, useState } from "react"
 import {
   Download,
   FileText,
   Loader2,
+  Lock,
+  Pencil,
   Plus,
   Sparkles,
   Trash2,
@@ -48,9 +51,9 @@ import {
 } from "@/components/ui/alert-dialog"
 import type { Invoice, InvoiceParty, InvoiceType } from "@/lib/invoice-types"
 import { INVOICE_TYPE_LABELS } from "@/lib/invoice-types"
+import { buildLineItemsFromTemplate } from "@/lib/invoice-template"
 import {
   addCalendarDays,
-  buildLineItemsForType,
   formatEuro,
   lineItemsTotal,
   parseEuroAmount,
@@ -63,6 +66,7 @@ import {
   persistBillingProfile,
 } from "@/lib/workspace-settings-client"
 import { DEFAULT_WORKSPACE_SETTINGS } from "@/lib/workspace-settings"
+import { InvoiceTemplateCard } from "@/components/invoice-template-card"
 
 type WeddingOption = {
   id: number
@@ -71,6 +75,8 @@ type WeddingOption = {
   email: string
   phone: string
   eventDate: string
+  eventType: "wedding" | "gite" | "other"
+  eventName: string
   deposit: { amount: string }
   balance: { amount: string }
 }
@@ -88,6 +94,7 @@ export function BillingDashboard() {
   const [billingProfile, setBillingProfile] = useState<BillingProfile>(
     DEFAULT_WORKSPACE_SETTINGS.billing
   )
+  const [invoiceTemplate, setInvoiceTemplate] = useState(DEFAULT_WORKSPACE_SETTINGS.invoiceTemplate)
   const [companyName, setCompanyName] = useState(DEFAULT_WORKSPACE_SETTINGS.companyName)
   const [contactEmail, setContactEmail] = useState(DEFAULT_WORKSPACE_SETTINGS.contactEmail)
   const [settingsLoading, setSettingsLoading] = useState(true)
@@ -132,6 +139,7 @@ export function BillingDashboard() {
         setBillingProfile(settings.billing)
         setCompanyName(settings.companyName)
         setContactEmail(settings.contactEmail)
+        setInvoiceTemplate(settings.invoiceTemplate)
       })
       .finally(() => setSettingsLoading(false))
   }, [])
@@ -207,8 +215,8 @@ export function BillingDashboard() {
         body: JSON.stringify({
           types: ["deposit", "balance"],
           issuer: issuerParty,
-          dueInDays: 30,
-          vatRate: 20,
+          dueInDays: invoiceTemplate.defaultDueDays,
+          vatRate: invoiceTemplate.defaultVatRate,
         }),
       })
       const payload = (await response.json()) as {
@@ -271,10 +279,15 @@ export function BillingDashboard() {
 
     const depositAmount = parseEuroAmount(wedding.deposit.amount)
     const balanceAmount = parseEuroAmount(wedding.balance.amount)
-    const lineItems = buildLineItemsForType(
+    const lineItems = buildLineItemsFromTemplate(
       newType,
-      wedding.couple,
-      wedding.eventDate,
+      {
+        couple: wedding.couple,
+        eventDate: wedding.eventDate,
+        eventType: wedding.eventType,
+        eventName: wedding.eventName,
+      },
+      invoiceTemplate,
       depositAmount,
       balanceAmount
     )
@@ -305,8 +318,8 @@ export function BillingDashboard() {
             phone: wedding.phone,
           },
           issuedAt,
-          dueAt: addCalendarDays(issuedAt, 30),
-          vatRate: 20,
+          dueAt: addCalendarDays(issuedAt, invoiceTemplate.defaultDueDays),
+          vatRate: invoiceTemplate.defaultVatRate,
           status: "draft",
         }),
       })
@@ -352,6 +365,8 @@ export function BillingDashboard() {
 
   return (
     <div className="space-y-6">
+      <InvoiceTemplateCard />
+
       <Card className="bg-white border-gray-100 shadow-sm">
         <CardHeader>
           <CardTitle>Coordonnées de facturation</CardTitle>
@@ -472,7 +487,7 @@ export function BillingDashboard() {
                   <TableHead>Type</TableHead>
                   <TableHead>Émission</TableHead>
                   <TableHead>Montant TTC</TableHead>
-                  <TableHead className="text-right">PDF</TableHead>
+                  <TableHead className="text-right">Actions</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
@@ -488,7 +503,17 @@ export function BillingDashboard() {
                     </TableCell>
                     <TableCell>{formatEuro(invoice.amountTtc)}</TableCell>
                     <TableCell className="text-right">
-                      <div className="flex justify-end gap-1">
+                      <div className="flex justify-end gap-1 items-center">
+                        {invoice.locked ? (
+                          <span title="Verrouillée">
+                            <Lock className="w-3.5 h-3.5 text-amber-600 mr-1" />
+                          </span>
+                        ) : null}
+                        <Button type="button" size="sm" variant="outline" asChild>
+                          <Link href={`/facturation/${invoice.id}`} title="Modifier">
+                            <Pencil className="w-3.5 h-3.5" />
+                          </Link>
+                        </Button>
                         <Button
                           type="button"
                           size="sm"

@@ -11,6 +11,7 @@ import {
   mergeWorkspaceSettings,
   type WorkspaceSettings,
 } from "@/lib/workspace-settings"
+import { mergeInvoiceTemplate, type InvoiceTemplate } from "@/lib/invoice-template"
 
 const TABLE = process.env.SUPABASE_WORKSPACE_SETTINGS_TABLE?.trim() || "workspace_settings"
 const DATA_FILE = path.join(process.cwd(), "data", "workspace-settings.json")
@@ -55,7 +56,14 @@ export async function upsertWorkspaceSettings(
   input: Partial<WorkspaceSettings>
 ): Promise<WorkspaceSettings> {
   const current = await getWorkspaceSettings()
-  const merged = mergeWorkspaceSettings({ ...current, ...input, billing: { ...current.billing, ...input.billing } })
+  const merged = mergeWorkspaceSettings({
+    ...current,
+    ...input,
+    billing: { ...current.billing, ...input.billing },
+    invoiceTemplate: input.invoiceTemplate
+      ? mergeInvoiceTemplate({ ...current.invoiceTemplate, ...input.invoiceTemplate })
+      : current.invoiceTemplate,
+  })
 
   if (await useSupabase()) {
     const { error } = await getSupabaseAdmin().from(TABLE).upsert(toDbRow(merged), { onConflict: "id" })
@@ -156,6 +164,9 @@ function mapDbRow(row: Record<string, unknown>): WorkspaceSettings {
     paymentAlerts: Boolean(row.payment_alerts ?? true),
     weeklySummary: Boolean(row.weekly_summary ?? false),
     darkMode: Boolean(row.dark_mode ?? false),
+    invoiceTemplate: mergeInvoiceTemplate(
+      row.invoice_template as Partial<InvoiceTemplate> | null
+    ),
   })
 }
 
@@ -176,6 +187,7 @@ function toDbRow(settings: WorkspaceSettings) {
     payment_alerts: settings.paymentAlerts,
     weekly_summary: settings.weeklySummary,
     dark_mode: settings.darkMode,
+    invoice_template: settings.invoiceTemplate,
     updated_at: new Date().toISOString(),
   }
 }

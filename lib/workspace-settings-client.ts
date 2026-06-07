@@ -58,7 +58,14 @@ export async function persistWorkspaceSettings(
   options?: { silent?: boolean }
 ): Promise<WorkspaceSettings> {
   const current = readSettingsFromLocalStorage()
-  const merged = mergeWorkspaceSettings({ ...current, ...settings, billing: { ...current.billing, ...settings.billing } })
+  const merged = mergeWorkspaceSettings({
+    ...current,
+    ...settings,
+    billing: { ...current.billing, ...settings.billing },
+    invoiceTemplate: settings.invoiceTemplate
+      ? { ...current.invoiceTemplate, ...settings.invoiceTemplate }
+      : current.invoiceTemplate,
+  })
 
   try {
     const response = await fetch("/api/settings", {

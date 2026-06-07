@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server"
 import { gateInternalToolAccess } from "@/lib/auth/internal-session"
-import { deleteInvoice, getInvoice, updateInvoiceStatus } from "@/lib/invoices-store"
-import type { InvoiceStatus } from "@/lib/invoice-types"
+import { deleteInvoice, getInvoice, updateInvoice } from "@/lib/invoices-store"
+import type { InvoiceStatus, UpdateInvoiceInput } from "@/lib/invoice-types"
 
 type RouteContext = { params: Promise<{ id: string }> }
 
@@ -26,18 +26,21 @@ export async function PATCH(request: Request, context: RouteContext) {
     const denied = await gateInternalToolAccess()
     if (denied) return denied
     const { id } = await context.params
-    const body = (await request.json()) as { status?: InvoiceStatus }
-    if (!body.status) {
-      return NextResponse.json({ error: "Statut manquant." }, { status: 400 })
+    const body = (await request.json()) as UpdateInvoiceInput & { status?: InvoiceStatus }
+
+    if (!body || Object.keys(body).length === 0) {
+      return NextResponse.json({ error: "Aucune modification fournie." }, { status: 400 })
     }
-    const invoice = await updateInvoiceStatus(id, body.status)
+
+    const invoice = await updateInvoice(id, body)
     if (!invoice) {
       return NextResponse.json({ error: "Facture introuvable." }, { status: 404 })
     }
     return NextResponse.json({ invoice })
   } catch (error) {
     const message = error instanceof Error ? error.message : "Erreur interne"
-    return NextResponse.json({ error: message }, { status: 500 })
+    const status = message.includes("verrouillée") ? 423 : 500
+    return NextResponse.json({ error: message }, { status })
   }
 }
 

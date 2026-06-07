@@ -8,7 +8,13 @@ import { randomUUID } from "crypto"
 import { promises as fs } from "fs"
 import path from "path"
 import { getSupabaseAdmin } from "@/lib/supabase/admin"
-import type { CreateInvoiceInput, Invoice, InvoiceStatus, InvoiceType } from "@/lib/invoice-types"
+import type {
+  CreateInvoiceInput,
+  Invoice,
+  InvoiceStatus,
+  InvoiceType,
+  UpdateInvoiceInput,
+} from "@/lib/invoice-types"
 import { buildInvoiceNumber, lineItemsTotal, todayIsoDate } from "@/lib/invoice-utils"
 
 const TABLE = process.env.SUPABASE_INVOICES_TABLE?.trim() || "invoices"
@@ -23,20 +29,28 @@ function isProductionRuntime() {
   return Boolean(process.env.VERCEL)
 }
 
+function normalizeInvoice(invoice: Invoice): Invoice {
+  return {
+    ...invoice,
+    locked: invoice.locked ?? false,
+  }
+}
+
 export async function listInvoices(): Promise<Invoice[]> {
   const rows = await loadAll()
-  return rows.sort((a, b) => b.issuedAt.localeCompare(a.issuedAt))
+  return rows.sort((a, b) => b.issuedAt.localeCompare(a.issuedAt)).map(normalizeInvoice)
 }
 
 export async function getInvoice(id: string): Promise<Invoice | null> {
   if (await useSupabase()) {
     const { data, error } = await getSupabaseAdmin().from(TABLE).select("*").eq("id", id).maybeSingle()
     if (error) throw storageError("lecture", error.message)
-    if (data) return mapDbRow(data as Record<string, unknown>)
+    if (data) return normalizeInvoice(mapDbRow(data as Record<string, unknown>))
     return null
   }
   const rows = await readFileStore()
-  return rows.find((row) => row.id === id) ?? null
+  const row = rows.find((item) => item.id === id)
+  return row ? normalizeInvoice(row) : null
 }
 
 export async function findInvoiceByWeddingAndType(
@@ -85,6 +99,7 @@ export async function createInvoice(input: CreateInvoiceInput): Promise<Invoice>
     issuer: input.issuer,
     client: input.client,
     notes: input.notes?.trim() || undefined,
+    locked: input.locked ?? false,
     createdAt: now,
     updatedAt: now,
   }
@@ -105,19 +120,58 @@ export async function createInvoice(input: CreateInvoiceInput): Promise<Invoice>
 }
 
 export async function updateInvoiceStatus(id: string, status: InvoiceStatus): Promise<Invoice | null> {
+  return updateInvoice(id, { status })
+}
+
+export async function updateInvoice(
+  id: string,
+  input: UpdateInvoiceInput
+): Promise<Invoice | null> {
   const current = await getInvoice(id)
   if (!current) return null
 
+  if (current.locked && input.locked !== false) {
+    const onlyLockToggle =
+      Object.keys(input).length === 1 && typeof input.locked === "boolean"
+    if (!onlyLockToggle) {
+      throw new Error("Cette facture est verrouillée. Déverrouillez-la pour la modifier.")
+    }
+  }
+
+  const lineItems = input.lineItems ?? current.lineItems
+  const amountTtc =
+    input.amountTtc ??
+    (input.lineItems ? lineItemsTotal(lineItems) : current.amountTtc)
+
   const updated: Invoice = {
     ...current,
-    status,
+    lineItems,
+    amountTtc,
+    issuedAt: input.issuedAt ?? current.issuedAt,
+    dueAt: input.dueAt ?? current.dueAt,
+    vatRate: input.vatRate ?? current.vatRate,
+    notes: input.notes !== undefined ? input.notes.trim() || undefined : current.notes,
+    status: input.status ?? current.status,
+    client: input.client ?? current.client,
+    locked: input.locked ?? current.locked,
     updatedAt: new Date().toISOString(),
   }
 
   if (await useSupabase()) {
     const { error } = await getSupabaseAdmin()
       .from(TABLE)
-      .update({ status, updated_at: updated.updatedAt })
+      .update({
+        line_items: updated.lineItems,
+        amount_ttc: updated.amountTtc,
+        issued_at: updated.issuedAt,
+        due_at: updated.dueAt,
+        vat_rate: updated.vatRate,
+        notes: updated.notes ?? null,
+        status: updated.status,
+        client: updated.client,
+        locked: updated.locked,
+        updated_at: updated.updatedAt,
+      })
       .eq("id", id)
     if (error) throw storageError("mise à jour", error.message)
     return updated
@@ -257,6 +311,7 @@ function mapDbRow(row: Record<string, unknown>): Invoice {
     issuer: row.issuer as Invoice["issuer"],
     client: row.client as Invoice["client"],
     notes: row.notes ? String(row.notes) : undefined,
+    locked: Boolean(row.locked ?? false),
     createdAt: String(row.created_at ?? new Date().toISOString()),
     updatedAt: String(row.updated_at ?? new Date().toISOString()),
   }
@@ -278,6 +333,7 @@ function toDbRow(invoice: Invoice) {
     issuer: invoice.issuer,
     client: invoice.client,
     notes: invoice.notes ?? null,
+    locked: invoice.locked,
     created_at: invoice.createdAt,
     updated_at: invoice.updatedAt,
   }

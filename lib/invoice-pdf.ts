@@ -1,6 +1,12 @@
 import { readFile } from "fs/promises"
 import path from "path"
 import { PDFDocument, StandardFonts, rgb, type PDFFont, type PDFPage } from "pdf-lib"
+import {
+  DEFAULT_INVOICE_TEMPLATE,
+  hexToRgb,
+  mergeInvoiceTemplate,
+  type InvoiceTemplate,
+} from "@/lib/invoice-template"
 import type { Invoice } from "@/lib/invoice-types"
 import { INVOICE_TYPE_LABELS } from "@/lib/invoice-types"
 import {
@@ -15,13 +21,19 @@ const MARGIN = 50
 const LOGO_PATH = path.join(process.cwd(), "public", "logo-domaine.png")
 const LOGO_WIDTH = 76
 
-const blue = rgb(0.12, 0.25, 0.69)
 const brand = rgb(0.35, 0.3, 0.22)
 const gray = rgb(0.22, 0.25, 0.29)
 const grayLight = rgb(0.42, 0.45, 0.5)
 const grayMuted = rgb(0.61, 0.64, 0.69)
+const discountColor = rgb(0.7, 0.2, 0.2)
 
-export async function buildInvoicePdf(invoice: Invoice): Promise<Buffer> {
+export async function buildInvoicePdf(
+  invoice: Invoice,
+  templateInput?: Partial<InvoiceTemplate>
+): Promise<Buffer> {
+  const template = mergeInvoiceTemplate(templateInput)
+  const primary = resolvePrimaryColor(template.primaryColor)
+
   const doc = await PDFDocument.create()
   const regular = await doc.embedFont(StandardFonts.Helvetica)
   const bold = await doc.embedFont(StandardFonts.HelveticaBold)
@@ -87,6 +99,10 @@ export async function buildInvoicePdf(invoice: Invoice): Promise<Buffer> {
     grayLight
   )
 
+  if (invoice.locked) {
+    y = drawLineRight(page, "VERROUILLÉE", rightX, y, 9, bold, discountColor)
+  }
+
   y -= 28
   y = drawLine(page, "Facturé à", MARGIN, y, 11, bold, gray)
   y -= 4
@@ -111,21 +127,23 @@ export async function buildInvoicePdf(invoice: Invoice): Promise<Buffer> {
     y: tableTop - 20,
     width: PAGE_WIDTH - MARGIN * 2,
     height: 22,
-    color: blue,
+    color: primary,
   })
 
   drawText(page, "Description", MARGIN + 8, tableTop - 14, 9, bold, rgb(1, 1, 1))
   drawText(page, "Qté", 320, tableTop - 14, 9, bold, rgb(1, 1, 1))
-  drawText(page, "P.U. HT", 400, tableTop - 14, 9, bold, rgb(1, 1, 1))
+  drawText(page, "P.U. TTC", 400, tableTop - 14, 9, bold, rgb(1, 1, 1))
   drawText(page, "Total TTC", 480, tableTop - 14, 9, bold, rgb(1, 1, 1))
 
   let rowY = tableTop - 36
   for (const item of invoice.lineItems) {
     const lineTtc = item.quantity * item.unitPrice
-    drawText(page, truncate(item.label, 52), MARGIN + 8, rowY, 9, regular, gray)
-    drawText(page, String(item.quantity), 320, rowY, 9, regular, gray)
-    drawText(page, formatEuroDetailed(item.unitPrice), 400, rowY, 9, regular, gray)
-    drawText(page, formatEuroDetailed(lineTtc), 480, rowY, 9, regular, gray)
+    const isDiscount = item.kind === "discount" || item.unitPrice < 0
+    const rowColor = isDiscount ? discountColor : gray
+    drawText(page, truncate(item.label, 52), MARGIN + 8, rowY, 9, regular, rowColor)
+    drawText(page, String(item.quantity), 320, rowY, 9, regular, rowColor)
+    drawText(page, formatEuroDetailed(item.unitPrice), 400, rowY, 9, regular, rowColor)
+    drawText(page, formatEuroDetailed(lineTtc), 480, rowY, 9, regular, rowColor)
     rowY -= 24
   }
 
@@ -140,24 +158,31 @@ export async function buildInvoicePdf(invoice: Invoice): Promise<Buffer> {
   )
   drawTotalsRow(page, "Total TTC", formatEuroDetailed(invoice.amountTtc), totalsY, bold, 12)
 
+  let footerY = 120
   if (invoice.notes) {
-    drawText(page, `Notes : ${invoice.notes}`, MARGIN, 120, 9, regular, grayMuted, 495)
+    drawText(page, `Notes : ${invoice.notes}`, MARGIN, footerY, 9, regular, grayMuted, 495)
+    footerY -= 28
   }
 
-  drawText(
-    page,
-    "Document généré automatiquement par Guestflow.",
-    MARGIN,
-    70,
-    8,
-    regular,
-    grayMuted,
-    PAGE_WIDTH - MARGIN * 2,
-    "center"
-  )
+  if (template.legalNotice.trim()) {
+    drawText(page, template.legalNotice.trim(), MARGIN, footerY, 8, regular, grayMuted, 495)
+    footerY -= 36
+  }
+
+  const footerText =
+    template.footerText.trim() || DEFAULT_INVOICE_TEMPLATE.footerText
+  if (footerText) {
+    drawText(page, footerText, MARGIN, 70, 8, regular, grayMuted, PAGE_WIDTH - MARGIN * 2, "center")
+  }
 
   const bytes = await doc.save()
   return Buffer.from(bytes)
+}
+
+function resolvePrimaryColor(hex: string) {
+  const parsed = hexToRgb(hex)
+  if (!parsed) return rgb(0.12, 0.25, 0.69)
+  return rgb(parsed.r, parsed.g, parsed.b)
 }
 
 function drawLine(

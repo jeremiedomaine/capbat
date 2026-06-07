@@ -2,6 +2,9 @@ import { NextResponse } from "next/server"
 import { gateInternalToolAccess } from "@/lib/auth/internal-session"
 import { isWeddingEventType, parseEventType, requiresContactName } from "@/lib/event-types"
 import { countActiveAutomationsByEventIds, seedDefaultAssignmentsForEvent } from "@/lib/event-automations-store"
+import { generateInvoicesForWeddings } from "@/lib/invoice-generate"
+import { buildIssuerFromSettings } from "@/lib/invoice-issuer"
+import { getWorkspaceSettings } from "@/lib/workspace-settings-store"
 import { createWedding, listWeddings } from "@/lib/weddings-store"
 
 export async function GET() {
@@ -42,6 +45,7 @@ export async function POST(request: Request) {
       depositAmount?: string
       balanceAmount?: string
       autopilot?: boolean
+      generateInvoices?: boolean
     }
 
     const eventType = parseEventType(body.eventType)
@@ -104,12 +108,30 @@ export async function POST(request: Request) {
     await seedDefaultAssignmentsForEvent(created.id, created.eventType, activateDefaults)
     const counts = await countActiveAutomationsByEventIds([created.id])
 
+    const settings = await getWorkspaceSettings()
+    const shouldGenerateInvoices =
+      body.generateInvoices ?? settings.invoiceTemplate.autoGenerateOnEventCreate
+
+    let invoicesCreated = 0
+    if (shouldGenerateInvoices) {
+      const result = await generateInvoicesForWeddings({
+        types: ["deposit", "balance"],
+        weddingIds: [created.id],
+        issuer: buildIssuerFromSettings(settings),
+        vatRate: settings.invoiceTemplate.defaultVatRate,
+        dueInDays: settings.invoiceTemplate.defaultDueDays,
+        template: settings.invoiceTemplate,
+      })
+      invoicesCreated = result.created.length
+    }
+
     return NextResponse.json(
       {
         wedding: {
           ...created,
           activeAutomationCount: counts.get(created.id) ?? 0,
         },
+        invoicesCreated,
       },
       { status: 201 }
     )

@@ -2,6 +2,7 @@ import { NextResponse } from "next/server"
 import { gateInternalToolAccess } from "@/lib/auth/internal-session"
 import { getInvoice } from "@/lib/invoices-store"
 import { buildInvoicePdf } from "@/lib/invoice-pdf"
+import { getWorkspaceSettings } from "@/lib/workspace-settings-store"
 
 export const runtime = "nodejs"
 
@@ -18,7 +19,7 @@ export async function GET(_request: Request, context: RouteContext) {
       return NextResponse.json({ error: "Facture introuvable." }, { status: 404 })
     }
 
-    const pdf = await buildInvoicePdf(invoice)
+    const pdf = await buildInvoicePdf(invoice, (await getWorkspaceSettings()).invoiceTemplate)
     const filename = `${invoice.number.replace(/\s+/g, "_")}.pdf`
 
     return new NextResponse(new Uint8Array(pdf), {

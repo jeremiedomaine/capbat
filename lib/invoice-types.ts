@@ -13,10 +13,13 @@ export type InvoiceParty = {
   vatNumber?: string
 }
 
+export type InvoiceLineItemKind = "standard" | "extra" | "discount"
+
 export type InvoiceLineItem = {
   label: string
   quantity: number
   unitPrice: number
+  kind?: InvoiceLineItemKind
 }
 
 export type Invoice = {
@@ -34,6 +37,7 @@ export type Invoice = {
   issuer: InvoiceParty
   client: InvoiceParty
   notes?: string
+  locked: boolean
   createdAt: string
   updatedAt: string
 }
@@ -51,6 +55,19 @@ export type CreateInvoiceInput = {
   vatRate?: number
   notes?: string
   status?: InvoiceStatus
+  locked?: boolean
+}
+
+export type UpdateInvoiceInput = {
+  lineItems?: InvoiceLineItem[]
+  amountTtc?: number
+  issuedAt?: string
+  dueAt?: string
+  vatRate?: number
+  notes?: string
+  status?: InvoiceStatus
+  client?: InvoiceParty
+  locked?: boolean
 }
 
 export const INVOICE_TYPE_LABELS: Record<InvoiceType, string> = {
