@@ -24,6 +24,7 @@ import {
   PAYMENT_METHOD_OPTIONS,
   type PaymentMethod,
 } from "@/lib/payment-methods"
+import { EventAutomationsCard } from "@/components/event-automations-card"
 import { formatSpouseName } from "@/lib/wedding-display"
 
 type WeddingDetail = {
@@ -251,6 +252,8 @@ export default function EventDetailPage() {
                 </CardContent>
               </Card>
 
+              <EventAutomationsCard eventId={wedding.id} eventType={wedding.eventType} />
+
               <Card>
                 <CardHeader>
                   <CardTitle className="text-base">Suivi financier</CardTitle>
@@ -258,10 +261,6 @@ export default function EventDetailPage() {
                 <CardContent className="grid grid-cols-1 md:grid-cols-2 gap-5">
                   <DetailField label="Acompte" value={wedding.deposit.amount} />
                   <DetailField label="Solde" value={wedding.balance.amount} />
-                  <DetailField
-                    label="Relance automatique"
-                    value={wedding.autopilot ? "Activée" : "Désactivée"}
-                  />
                 </CardContent>
               </Card>
 

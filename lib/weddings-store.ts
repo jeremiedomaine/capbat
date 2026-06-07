@@ -19,8 +19,9 @@ export type Wedding = WeddingDetailFields &
   balance: { amount: string; status: PaymentStatus }
   autopilot: boolean
   lastActivity: string
-  /** Date civile (YYYY-MM-DD) d'envoi du message J+3, si déjà envoyé. */
+  /** @deprecated Utiliser activeAutomationCount + assignations. */
   postEventReminderSentDate: string
+  activeAutomationCount?: number
 }
 
 export type PaymentStatus = "pending" | "paid" | "to_collect"

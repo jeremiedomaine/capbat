@@ -2,16 +2,18 @@ import { NextResponse } from "next/server"
 import { checkAutomationSecret } from "@/lib/automation-auth"
 import { runAutomations } from "@/lib/automation-engine"
 
-/** @deprecated Utiliser /api/automations/run */
+/**
+ * GET/POST — cron Vercel ou tests (`?dryRun=1`, `?skipSchedule=1`).
+ */
 export async function GET(request: Request) {
-  return handleLegacy(request)
+  return handleRun(request)
 }
 
 export async function POST(request: Request) {
-  return handleLegacy(request)
+  return handleRun(request)
 }
 
-async function handleLegacy(request: Request) {
+async function handleRun(request: Request) {
   const authError = checkAutomationSecret(request)
   if (authError) return authError
 
@@ -21,7 +23,7 @@ async function handleLegacy(request: Request) {
 
   try {
     const result = await runAutomations({ dryRun, skipSchedule })
-    return NextResponse.json({ ...result, legacyRoute: "deposit-reminder" })
+    return NextResponse.json(result)
   } catch (error) {
     const message = error instanceof Error ? error.message : "Erreur interne"
     return NextResponse.json({ error: message }, { status: 500 })

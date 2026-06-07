@@ -314,9 +314,9 @@ export default function NewEventPage() {
 
                 <div className="flex items-center justify-between rounded-lg border border-gray-100 p-4">
                   <div>
-                    <p className="text-sm font-medium text-gray-800">Activer le pilote automatique</p>
+                    <p className="text-sm font-medium text-gray-800">Relances par défaut</p>
                     <p className="text-xs text-gray-500">
-                      Les relances e-mail seront planifiées automatiquement.
+                      Active les automatisations marquées « par défaut » pour ce type d&apos;événement.
                     </p>
                   </div>
                   <Switch checked={autopilot} onCheckedChange={setAutopilot} />

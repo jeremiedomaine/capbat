@@ -33,7 +33,7 @@ type WeddingRow = {
   eventDate: string
   deposit: { amount: string; status: PaymentStatus }
   balance: { amount: string; status: PaymentStatus }
-  autopilot: boolean
+  activeAutomationCount?: number
 }
 
 type MonthKey = `${number}-${string}`
@@ -100,10 +100,13 @@ export function PerformanceDashboard() {
         .filter((row) => row.balance.status !== "paid")
         .reduce((sum, row) => sum + parseEuroAmount(row.balance.amount), 0)
 
-    const autopilotOn = rows.filter((row) => row.autopilot).length
+    const activeRelances = rows.reduce(
+      (sum, row) => sum + (row.activeAutomationCount ?? 0),
+      0
+    )
     const totalWeddings = rows.length
 
-    return { totalExpected, totalCollected, outstanding, autopilotOn, totalWeddings }
+    return { totalExpected, totalCollected, outstanding, activeRelances, totalWeddings }
   }, [rows])
 
   const revenueByMonth = useMemo(() => {
@@ -202,7 +205,7 @@ export function PerformanceDashboard() {
         <KpiCard title="Chiffre prévu" value={formatEuro(summary.totalExpected)} />
         <KpiCard title="Chiffre encaissé" value={formatEuro(summary.totalCollected)} />
         <KpiCard title="Reste à encaisser" value={formatEuro(summary.outstanding)} />
-        <KpiCard title="Relances actives" value={`${summary.autopilotOn}`} />
+        <KpiCard title="Relances actives" value={`${summary.activeRelances}`} />
         <KpiCard title="Événements" value={`${summary.totalWeddings}`} />
       </div>
 

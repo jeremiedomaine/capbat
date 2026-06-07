@@ -86,8 +86,7 @@ export async function POST(request: Request) {
       from: fromEmail,
       to,
       subject: `[Test] ${subjectRendered}`,
-      text:
-        `${textRendered}\n\n---\nE-mail de test envoyé depuis la page Automatisations (variables factices d’aperçu).`,
+      text: textRendered,
     })
   } catch (error) {
     const message = error instanceof Error ? error.message : "Erreur Resend."

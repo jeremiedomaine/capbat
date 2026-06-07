@@ -6,7 +6,6 @@ import { CalendarPlus, Loader2, Pencil } from "lucide-react"
 import { toast } from "sonner"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
-import { Switch } from "@/components/ui/switch"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import {
@@ -81,15 +80,13 @@ type WeddingRow = {
   eventDate: string
   deposit: { amount: string; status: PaymentStatus }
   balance: { amount: string; status: PaymentStatus }
-  autopilot: boolean
+  activeAutomationCount?: number
   lastActivity: string
 }
 
 type PaymentStatus = "pending" | "paid" | "to_collect"
 
-type PendingOp =
-  | { rowId: number; kind: "deposit" | "balance" | "autopilot" }
-  | null
+type PendingOp = { rowId: number; kind: "deposit" | "balance" } | null
 
 export function WeddingsTable({ mode = "dashboard" }: WeddingsTableProps) {
   const [rows, setRows] = useState<WeddingRow[]>([])
@@ -144,31 +141,6 @@ export function WeddingsTable({ mode = "dashboard" }: WeddingsTableProps) {
       setLoading(false)
     }
   }, [])
-
-  const toggleAutopilot = async (id: number, autopilot: boolean) => {
-    setPendingOp({ rowId: id, kind: "autopilot" })
-    try {
-      const response = await fetch(`/api/weddings/${id}/autopilot`, {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ autopilot }),
-      })
-      if (!response.ok) {
-        const payload = (await response.json().catch(() => ({}))) as { error?: string }
-        throw new Error(payload.error ?? "Mise à jour impossible.")
-      }
-      const payload = (await response.json()) as { wedding: WeddingRow }
-      setRows((prev) => prev.map((row) => (row.id === id ? payload.wedding : row)))
-      window.dispatchEvent(new Event("weddings-updated"))
-      toast.success(autopilot ? "Relance automatique activée" : "Relance automatique désactivée")
-    } catch (e) {
-      toast.error("Échec de la mise à jour", {
-        description: e instanceof Error ? e.message : "Réessayez dans un instant.",
-      })
-    } finally {
-      setPendingOp(null)
-    }
-  }
 
   useEffect(() => {
     refreshRows()
@@ -348,7 +320,7 @@ export function WeddingsTable({ mode = "dashboard" }: WeddingsTableProps) {
                     Solde
                   </TableHead>
                   <TableHead className="px-4 py-3.5 text-xs font-medium text-gray-400 uppercase tracking-wider">
-                    Relance auto
+                    Relances
                   </TableHead>
                   <TableHead className="px-6 py-3.5 text-xs font-medium text-gray-400 uppercase tracking-wider">
                     Dernière Activité
@@ -422,26 +394,12 @@ export function WeddingsTable({ mode = "dashboard" }: WeddingsTableProps) {
                     </TableCell>
 
                     <TableCell className="px-4 py-4">
-                      <div className="flex items-center gap-2.5">
-                        <Switch
-                          checked={row.autopilot}
-                          disabled={
-                            pendingOp?.rowId === row.id && pendingOp.kind === "autopilot"
-                          }
-                          onCheckedChange={(checked) => toggleAutopilot(row.id, checked)}
-                          className="data-[state=checked]:bg-emerald-500"
-                          aria-label={`Pilote automatique pour ${row.couple}`}
-                        />
-                        <span className="text-xs text-gray-400">
-                          {pendingOp?.rowId === row.id && pendingOp.kind === "autopilot" ? (
-                            <Loader2 className="inline h-3.5 w-3.5 animate-spin" aria-hidden />
-                          ) : row.autopilot ? (
-                            "Actif"
-                          ) : (
-                            "Inactif"
-                          )}
-                        </span>
-                      </div>
+                      <Link
+                        href={`/evenements/${row.id}`}
+                        className="text-sm font-medium text-gray-700 hover:text-blue-600 hover:underline underline-offset-2"
+                      >
+                        {row.activeAutomationCount ?? 0} active{(row.activeAutomationCount ?? 0) !== 1 ? "s" : ""}
+                      </Link>
                     </TableCell>
 
                     <TableCell className="px-6 py-4">

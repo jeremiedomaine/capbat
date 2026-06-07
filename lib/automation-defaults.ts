@@ -16,6 +16,17 @@ export const DEPOSIT_REMINDER_DAYS_BEFORE = 30
 /** Message après mariage : J+3 après la date d'événement (mariages uniquement). */
 export const POST_EVENT_REMINDER_DAYS_AFTER = 3
 
+/** Rappel arrivée gîte : J-7 avant la date d'événement. */
+export const GITE_ARRIVAL_DAYS_BEFORE = 7
+
+export const DEFAULT_GITE_ARRIVAL_SUBJECT = "Rappel — votre séjour du {{date_mariage}}"
+
+export const DEFAULT_GITE_ARRIVAL_MESSAGE =
+  "Bonjour {{prenom}},\n\nNous vous rappelons votre séjour prévu le {{date_mariage}}.\n\n[Ecrivez ici vos informations pratiques d'arrivée.]\n\nBien cordialement,\nL'equipe Guestflow"
+
+/** Max automatisations actives (garde-fou UI). */
+export const MAX_AUTOMATIONS = 10
+
 /** Heure fixe des relances (fuseau `AUTOMATION_TIMEZONE`, défaut Europe/Paris). Non modifiable dans l’app. */
 export const FIXED_AUTOMATION_SEND_TIME = "09:00"
 

@@ -3,19 +3,11 @@
   "installCommand": "npm ci",
   "crons": [
     {
-      "path": "/api/automations/deposit-reminder",
+      "path": "/api/automations/run",
       "schedule": "0 7 * * *"
     },
     {
-      "path": "/api/automations/deposit-reminder",
-      "schedule": "0 8 * * *"
-    },
-    {
-      "path": "/api/automations/post-event-reminder",
-      "schedule": "0 7 * * *"
-    },
-    {
-      "path": "/api/automations/post-event-reminder",
+      "path": "/api/automations/run",
       "schedule": "0 8 * * *"
     }
   ]

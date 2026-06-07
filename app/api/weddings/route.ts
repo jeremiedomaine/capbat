@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server"
 import { gateInternalToolAccess } from "@/lib/auth/internal-session"
 import { isWeddingEventType, parseEventType, requiresContactName } from "@/lib/event-types"
+import { countActiveAutomationsByEventIds, seedDefaultAssignmentsForEvent } from "@/lib/event-automations-store"
 import { createWedding, listWeddings } from "@/lib/weddings-store"
 
 export async function GET() {
@@ -8,7 +9,12 @@ export async function GET() {
     const denied = await gateInternalToolAccess()
     if (denied) return denied
     const weddings = await listWeddings()
-    return NextResponse.json({ weddings })
+    const counts = await countActiveAutomationsByEventIds(weddings.map((w) => w.id))
+    const enriched = weddings.map((w) => ({
+      ...w,
+      activeAutomationCount: counts.get(w.id) ?? 0,
+    }))
+    return NextResponse.json({ weddings: enriched })
   } catch (error) {
     const message = error instanceof Error ? error.message : "Erreur interne"
     return NextResponse.json({ error: message, weddings: [] }, { status: 500 })
@@ -75,6 +81,7 @@ export async function POST(request: Request) {
       )
     }
 
+    const activateDefaults = body.autopilot ?? true
     const created = await createWedding({
       eventType,
       eventName: body.eventName,
@@ -91,10 +98,21 @@ export async function POST(request: Request) {
       eventDate: body.eventDate,
       depositAmount: body.depositAmount,
       balanceAmount: body.balanceAmount,
-      autopilot: body.autopilot ?? true,
+      autopilot: activateDefaults,
     })
 
-    return NextResponse.json({ wedding: created }, { status: 201 })
+    await seedDefaultAssignmentsForEvent(created.id, created.eventType, activateDefaults)
+    const counts = await countActiveAutomationsByEventIds([created.id])
+
+    return NextResponse.json(
+      {
+        wedding: {
+          ...created,
+          activeAutomationCount: counts.get(created.id) ?? 0,
+        },
+      },
+      { status: 201 }
+    )
   } catch (error) {
     const message = error instanceof Error ? error.message : "Erreur interne"
     return NextResponse.json({ error: message }, { status: 500 })

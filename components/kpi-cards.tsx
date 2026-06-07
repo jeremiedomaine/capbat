@@ -16,7 +16,7 @@ type WeddingRow = {
   eventDate: string
   deposit: { amount: string; status: PaymentStatus }
   balance: { amount: string; status: PaymentStatus }
-  autopilot: boolean
+  activeAutomationCount?: number
 }
 
 export function KpiCards() {
@@ -84,9 +84,10 @@ export function KpiCards() {
       0
     )
 
-    const activeRelances = rows.filter(
-      (row) => row.autopilot && row.balance.status === "pending"
-    ).length
+    const activeRelances = rows.reduce(
+      (sum, row) => sum + (row.activeAutomationCount ?? 0),
+      0
+    )
 
     return [
       {

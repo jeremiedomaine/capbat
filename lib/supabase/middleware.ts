@@ -9,7 +9,10 @@ function resolvePublicSupabaseConfig() {
 export async function updateSession(request: NextRequest) {
   const pathname = request.nextUrl.pathname
 
-  const isAutomationEndpoint = pathname.startsWith("/api/automations/deposit-reminder")
+  const isAutomationEndpoint =
+    pathname.startsWith("/api/automations/run") ||
+    pathname.startsWith("/api/automations/deposit-reminder") ||
+    pathname.startsWith("/api/automations/post-event-reminder")
   if (isAutomationEndpoint) {
     return NextResponse.next({ request })
   }
