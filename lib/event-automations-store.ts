@@ -23,12 +23,10 @@ export async function seedDefaultAssignmentsForEvent(
 ) {
   if (!activateDefaults) return
   const automations = await listAutomations(true)
-  const defaults = automations.filter(
-    (a) => a.isDefault && a.eventTypes.includes(eventType)
-  )
-  if (!defaults.length) return
+  const compatible = automations.filter((a) => a.eventTypes.includes(eventType))
+  if (!compatible.length) return
 
-  const rows = defaults.map((a) => ({
+  const rows = compatible.map((a) => ({
     event_id: eventId,
     automation_id: a.id,
     enabled: true,

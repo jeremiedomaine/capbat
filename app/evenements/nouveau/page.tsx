@@ -316,7 +316,8 @@ export default function NewEventPage() {
                   <div>
                     <p className="text-sm font-medium text-gray-800">Relances par défaut</p>
                     <p className="text-xs text-gray-500">
-                      Active les automatisations marquées « par défaut » pour ce type d&apos;événement.
+                      Coche toutes les automatisations compatibles sur la fiche de l&apos;événement
+                      (modifiable ensuite).
                     </p>
                   </div>
                   <Switch checked={autopilot} onCheckedChange={setAutopilot} />

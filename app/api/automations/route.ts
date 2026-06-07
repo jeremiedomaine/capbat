@@ -49,8 +49,8 @@ export async function POST(request: Request) {
       messageTemplate: body.messageTemplate,
       eventTypes,
       onlyIfBalancePending: body.onlyIfBalancePending ?? false,
-      isActive: body.isActive ?? true,
-      isDefault: body.isDefault ?? false,
+      isActive: true,
+      isDefault: false,
       sortOrder: body.sortOrder ?? total + 1,
     })
 

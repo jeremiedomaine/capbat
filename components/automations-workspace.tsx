@@ -1,13 +1,12 @@
 "use client"
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react"
-import { Loader2, Mail, Plus, Trash2 } from "lucide-react"
+import { Loader2, Mail, Pencil, Plus, Trash2 } from "lucide-react"
 import { toast } from "sonner"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Textarea } from "@/components/ui/textarea"
 import { Input } from "@/components/ui/input"
 import { Button } from "@/components/ui/button"
-import { Badge } from "@/components/ui/badge"
 import { Checkbox } from "@/components/ui/checkbox"
 import { Label } from "@/components/ui/label"
 import {
@@ -57,8 +56,6 @@ type Automation = {
   messageTemplate: string
   eventTypes: EventType[]
   onlyIfBalancePending: boolean
-  isActive: boolean
-  isDefault: boolean
   sortOrder: number
 }
 
@@ -72,8 +69,6 @@ function emptyDraft(): Omit<Automation, "id" | "sortOrder"> {
     messageTemplate: DEFAULT_AUTOMATION_MESSAGE,
     eventTypes: ["wedding"],
     onlyIfBalancePending: false,
-    isActive: true,
-    isDefault: false,
   }
 }
 
@@ -89,29 +84,54 @@ export function AutomationsWorkspace() {
   const [deleteTarget, setDeleteTarget] = useState<Automation | null>(null)
   const [testRecipientEmail, setTestRecipientEmail] = useState("")
   const [isNew, setIsNew] = useState(false)
+  const [renamingId, setRenamingId] = useState<string | null>(null)
+  const [renameValue, setRenameValue] = useState("")
   const messageRef = useRef<HTMLTextAreaElement | null>(null)
 
-  const load = useCallback(async () => {
-    setLoading(true)
-    try {
-      const res = await fetch("/api/automations")
-      const payload = (await res.json()) as { automations?: Automation[]; error?: string }
-      if (!res.ok) throw new Error(payload.error ?? "Chargement impossible.")
-      const list = payload.automations ?? []
-      setAutomations(list)
-      if (list.length && !selectedId && !isNew) {
-        setSelectedId(list[0]!.id)
-        setDraft({ ...list[0]! })
-        setIsNew(false)
+  const applySelection = useCallback((item: Automation) => {
+    setSelectedId(item.id)
+    setDraft({
+      name: item.name,
+      dayOffset: item.dayOffset,
+      subjectTemplate: item.subjectTemplate,
+      messageTemplate: item.messageTemplate,
+      eventTypes: item.eventTypes,
+      onlyIfBalancePending: item.onlyIfBalancePending,
+    })
+    setIsNew(false)
+    setRenamingId(null)
+  }, [])
+
+  const load = useCallback(
+    async (keepId?: string | null) => {
+      setLoading(true)
+      try {
+        const res = await fetch("/api/automations")
+        const payload = (await res.json()) as { automations?: Automation[]; error?: string }
+        if (!res.ok) throw new Error(payload.error ?? "Chargement impossible.")
+        const list = payload.automations ?? []
+        setAutomations(list)
+
+        const targetId = keepId ?? selectedId
+        const current = targetId ? list.find((a) => a.id === targetId) : null
+        if (current) {
+          applySelection(current)
+        } else if (list.length > 0 && !isNew) {
+          applySelection(list[0]!)
+        } else if (!list.length) {
+          setSelectedId(null)
+          setDraft(emptyDraft())
+        }
+      } catch (e) {
+        toast.error("Automatisations", {
+          description: e instanceof Error ? e.message : "Erreur de chargement.",
+        })
+      } finally {
+        setLoading(false)
       }
-    } catch (e) {
-      toast.error("Automatisations", {
-        description: e instanceof Error ? e.message : "Erreur de chargement.",
-      })
-    } finally {
-      setLoading(false)
-    }
-  }, [selectedId, isNew])
+    },
+    [applySelection, isNew, selectedId]
+  )
 
   useEffect(() => {
     void load()
@@ -143,12 +163,6 @@ export function AutomationsWorkspace() {
     [draft.messageTemplate, previewVars]
   )
 
-  function selectAutomation(item: Automation) {
-    setSelectedId(item.id)
-    setDraft({ ...item })
-    setIsNew(false)
-  }
-
   function startNew() {
     if (automations.length >= MAX_AUTOMATIONS) {
       toast.error(`Maximum ${MAX_AUTOMATIONS} automatisations.`)
@@ -157,6 +171,7 @@ export function AutomationsWorkspace() {
     setSelectedId(null)
     setDraft(emptyDraft())
     setIsNew(true)
+    setRenamingId(null)
   }
 
   function insertVariable(token: string) {
@@ -200,14 +215,12 @@ export function AutomationsWorkspace() {
     setSaving(true)
     try {
       const payload = {
-        name: draft.name,
+        name: draft.name.trim(),
         dayOffset: draft.dayOffset,
         subjectTemplate: draft.subjectTemplate,
         messageTemplate: draft.messageTemplate,
         eventTypes: draft.eventTypes,
         onlyIfBalancePending: draft.onlyIfBalancePending,
-        isActive: draft.isActive,
-        isDefault: draft.isDefault,
       }
 
       const res = await fetch(isNew ? "/api/automations" : `/api/automations/${selectedId}`, {
@@ -218,13 +231,10 @@ export function AutomationsWorkspace() {
       const data = (await res.json()) as { automation?: Automation; error?: string }
       if (!res.ok) throw new Error(data.error ?? "Enregistrement impossible.")
 
-      toast.success(isNew ? "Automatisation créée" : "Automatisation enregistrée")
+      toast.success(isNew ? "Automatisation créée" : "Modifications enregistrées")
+      const newId = data.automation?.id ?? selectedId
       setIsNew(false)
-      if (data.automation) {
-        setSelectedId(data.automation.id)
-        setDraft({ ...data.automation })
-      }
-      await load()
+      await load(newId)
     } catch (e) {
       toast.error(e instanceof Error ? e.message : "Erreur")
     } finally {
@@ -232,20 +242,46 @@ export function AutomationsWorkspace() {
     }
   }
 
+  async function renameAutomation(id: string, name: string) {
+    const trimmed = name.trim()
+    if (!trimmed) {
+      toast.error("Le nom ne peut pas être vide.")
+      return
+    }
+    try {
+      const res = await fetch(`/api/automations/${id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ name: trimmed }),
+      })
+      const data = (await res.json()) as { automation?: Automation; error?: string }
+      if (!res.ok) throw new Error(data.error ?? "Renommage impossible.")
+      toast.success("Nom mis à jour")
+      setRenamingId(null)
+      if (selectedId === id && data.automation) {
+        setDraft((d) => ({ ...d, name: trimmed }))
+      }
+      await load(id)
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Erreur")
+    }
+  }
+
   async function handleDelete() {
     if (!deleteTarget) return
+    const deletedId = deleteTarget.id
     try {
-      const res = await fetch(`/api/automations/${deleteTarget.id}`, { method: "DELETE" })
+      const res = await fetch(`/api/automations/${deletedId}`, { method: "DELETE" })
       const data = (await res.json()) as { error?: string }
       if (!res.ok) throw new Error(data.error ?? "Suppression impossible.")
       toast.success("Automatisation supprimée")
       setDeleteTarget(null)
-      if (selectedId === deleteTarget.id) {
+      if (selectedId === deletedId) {
         setSelectedId(null)
         setIsNew(false)
         setDraft(emptyDraft())
       }
-      await load()
+      await load(null)
     } catch (e) {
       toast.error(e instanceof Error ? e.message : "Erreur")
     }
@@ -295,12 +331,12 @@ export function AutomationsWorkspace() {
       <header className="space-y-1">
         <h1 className="text-2xl font-semibold text-gray-900">Automatisations</h1>
         <p className="text-sm text-gray-500">
-          Créez vos modèles de relances. Envoi automatique à {FIXED_AUTOMATION_SEND_TIME} (heure de
-          Paris). Assignez-les ensuite sur chaque fiche événement.
+          Créez et modifiez vos modèles ici (nom, délai, message). Activez-les ensuite sur chaque
+          fiche événement. Envoi automatique à {FIXED_AUTOMATION_SEND_TIME} (Paris).
         </p>
       </header>
 
-      <div className="grid grid-cols-1 lg:grid-cols-[minmax(240px,300px)_1fr] gap-6">
+      <div className="grid grid-cols-1 lg:grid-cols-[minmax(260px,320px)_1fr] gap-6">
         <Card className="bg-white border-gray-100 shadow-sm h-fit">
           <CardHeader className="pb-3">
             <div className="flex items-center justify-between gap-2">
@@ -310,7 +346,9 @@ export function AutomationsWorkspace() {
                 Nouvelle
               </Button>
             </div>
-            <CardDescription>{automations.length}/{MAX_AUTOMATIONS} automatisations</CardDescription>
+            <CardDescription>
+              {automations.length}/{MAX_AUTOMATIONS} · clic pour éditer, crayon pour renommer
+            </CardDescription>
           </CardHeader>
           <CardContent className="space-y-4">
             {loading ? (
@@ -326,7 +364,17 @@ export function AutomationsWorkspace() {
                     title="Avant l'événement"
                     items={grouped.before}
                     selectedId={selectedId}
-                    onSelect={selectAutomation}
+                    renamingId={renamingId}
+                    renameValue={renameValue}
+                    onSelect={applySelection}
+                    onStartRename={(item) => {
+                      setRenamingId(item.id)
+                      setRenameValue(item.name)
+                    }}
+                    onRenameValueChange={setRenameValue}
+                    onCommitRename={(id) => void renameAutomation(id, renameValue)}
+                    onCancelRename={() => setRenamingId(null)}
+                    onDelete={setDeleteTarget}
                   />
                 ) : null}
                 {grouped.after.length > 0 ? (
@@ -334,7 +382,17 @@ export function AutomationsWorkspace() {
                     title="Après l'événement"
                     items={grouped.after}
                     selectedId={selectedId}
-                    onSelect={selectAutomation}
+                    renamingId={renamingId}
+                    renameValue={renameValue}
+                    onSelect={applySelection}
+                    onStartRename={(item) => {
+                      setRenamingId(item.id)
+                      setRenameValue(item.name)
+                    }}
+                    onRenameValueChange={setRenameValue}
+                    onCommitRename={(id) => void renameAutomation(id, renameValue)}
+                    onCancelRename={() => setRenamingId(null)}
+                    onDelete={setDeleteTarget}
                   />
                 ) : null}
               </>
@@ -349,12 +407,13 @@ export function AutomationsWorkspace() {
             </CardTitle>
             <CardDescription>
               {dayOffsetSectionLabel(draft.dayOffset)} · {formatDayOffset(draft.dayOffset)}
+              {!isNew ? " · modifiez puis enregistrez" : null}
             </CardDescription>
           </CardHeader>
           <CardContent className="space-y-5">
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               <div className="space-y-2">
-                <Label>Nom</Label>
+                <Label>Nom affiché</Label>
                 <Input
                   value={draft.name}
                   onChange={(e) => setDraft((d) => ({ ...d, name: e.target.value }))}
@@ -373,13 +432,13 @@ export function AutomationsWorkspace() {
                   }
                 />
                 <p className="text-xs text-gray-500">
-                  Négatif = avant (J-30), positif = après (J+3). Affiché : {formatDayOffset(draft.dayOffset)}
+                  Négatif = avant · positif = après ({formatDayOffset(draft.dayOffset)})
                 </p>
               </div>
             </div>
 
             <div className="space-y-2">
-              <Label>Types d&apos;événements ciblés</Label>
+              <Label>Types d&apos;événements concernés</Label>
               <div className="flex flex-wrap gap-3">
                 {EVENT_TYPE_OPTIONS.map((type) => (
                   <label key={type} className="flex items-center gap-2 text-sm">
@@ -393,34 +452,18 @@ export function AutomationsWorkspace() {
               </div>
             </div>
 
-            <div className="flex flex-wrap gap-4">
-              <label className="flex items-center gap-2 text-sm">
-                <Checkbox
-                  checked={draft.onlyIfBalancePending}
-                  onCheckedChange={(v) =>
-                    setDraft((d) => ({ ...d, onlyIfBalancePending: v === true }))
-                  }
-                />
-                Uniquement si solde en attente
-              </label>
-              <label className="flex items-center gap-2 text-sm">
-                <Checkbox
-                  checked={draft.isDefault}
-                  onCheckedChange={(v) => setDraft((d) => ({ ...d, isDefault: v === true }))}
-                />
-                Activée par défaut sur les nouveaux événements
-              </label>
-              <label className="flex items-center gap-2 text-sm">
-                <Checkbox
-                  checked={draft.isActive}
-                  onCheckedChange={(v) => setDraft((d) => ({ ...d, isActive: v === true }))}
-                />
-                Automatisation active
-              </label>
-            </div>
+            <label className="flex items-center gap-2 text-sm">
+              <Checkbox
+                checked={draft.onlyIfBalancePending}
+                onCheckedChange={(v) =>
+                  setDraft((d) => ({ ...d, onlyIfBalancePending: v === true }))
+                }
+              />
+              Uniquement si le solde est encore en attente
+            </label>
 
             <div className="space-y-2">
-              <Label>Objet</Label>
+              <Label>Objet de l&apos;e-mail</Label>
               <Input
                 value={draft.subjectTemplate}
                 onChange={(e) => setDraft((d) => ({ ...d, subjectTemplate: e.target.value }))}
@@ -458,20 +501,22 @@ export function AutomationsWorkspace() {
             </div>
 
             <div className="flex flex-wrap items-center gap-3">
-              <Button type="button" onClick={handleSave} disabled={saving}>
+              <Button type="button" onClick={handleSave} disabled={saving || (!isNew && !selectedId)}>
                 {saving ? (
                   <>
                     <Loader2 className="mr-2 h-4 w-4 animate-spin" /> Enregistrement…
                   </>
+                ) : isNew ? (
+                  "Créer"
                 ) : (
-                  "Enregistrer"
+                  "Enregistrer les modifications"
                 )}
               </Button>
               <Button
                 type="button"
                 variant="outline"
                 onClick={handleTestEmail}
-                disabled={sendingTest}
+                disabled={sendingTest || isNew}
               >
                 {sendingTest ? (
                   <Loader2 className="mr-2 h-4 w-4 animate-spin" />
@@ -504,8 +549,8 @@ export function AutomationsWorkspace() {
           <AlertDialogHeader>
             <AlertDialogTitle>Supprimer cette automatisation ?</AlertDialogTitle>
             <AlertDialogDescription>
-              « {deleteTarget?.name} » sera retirée du catalogue. Les assignations existantes seront
-              supprimées.
+              « {deleteTarget?.name} » sera définitivement retirée. Les relances déjà activées sur
+              des événements seront aussi retirées.
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
@@ -524,12 +569,26 @@ function AutomationListGroup({
   title,
   items,
   selectedId,
+  renamingId,
+  renameValue,
   onSelect,
+  onStartRename,
+  onRenameValueChange,
+  onCommitRename,
+  onCancelRename,
+  onDelete,
 }: {
   title: string
   items: Automation[]
   selectedId: string | null
+  renamingId: string | null
+  renameValue: string
   onSelect: (item: Automation) => void
+  onStartRename: (item: Automation) => void
+  onRenameValueChange: (value: string) => void
+  onCommitRename: (id: string) => void
+  onCancelRename: () => void
+  onDelete: (item: Automation) => void
 }) {
   return (
     <div className="space-y-2">
@@ -537,29 +596,72 @@ function AutomationListGroup({
       <ul className="space-y-1">
         {items.map((item) => (
           <li key={item.id}>
-            <button
-              type="button"
-              onClick={() => onSelect(item)}
+            <div
               className={cn(
-                "w-full text-left rounded-lg border px-3 py-2.5 transition-colors",
+                "rounded-lg border px-2 py-2 transition-colors",
                 selectedId === item.id
                   ? "border-gray-300 bg-gray-50"
                   : "border-transparent hover:bg-gray-50"
               )}
             >
-              <div className="flex items-center justify-between gap-2">
-                <span className="text-sm font-medium text-gray-900 truncate">{item.name}</span>
-                {!item.isActive ? (
-                  <Badge variant="outline" className="text-xs shrink-0">
-                    Off
-                  </Badge>
-                ) : null}
-              </div>
-              <p className="text-xs text-gray-500 mt-0.5">
-                {formatDayOffset(item.dayOffset)} ·{" "}
-                {item.eventTypes.map((t) => EVENT_TYPE_LABELS[t]).join(", ")}
-              </p>
-            </button>
+              {renamingId === item.id ? (
+                <div className="flex items-center gap-1">
+                  <Input
+                    value={renameValue}
+                    onChange={(e) => onRenameValueChange(e.target.value)}
+                    className="h-8 text-sm"
+                    autoFocus
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter") onCommitRename(item.id)
+                      if (e.key === "Escape") onCancelRename()
+                    }}
+                  />
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant="ghost"
+                    className="h-8 px-2"
+                    onClick={() => onCommitRename(item.id)}
+                  >
+                    OK
+                  </Button>
+                </div>
+              ) : (
+                <div className="flex items-start gap-1">
+                  <button
+                    type="button"
+                    onClick={() => onSelect(item)}
+                    className="flex-1 min-w-0 text-left px-1 py-0.5"
+                  >
+                    <p className="text-sm font-medium text-gray-900 truncate">{item.name}</p>
+                    <p className="text-xs text-gray-500 mt-0.5">
+                      {formatDayOffset(item.dayOffset)} ·{" "}
+                      {item.eventTypes.map((t) => EVENT_TYPE_LABELS[t]).join(", ")}
+                    </p>
+                  </button>
+                  <Button
+                    type="button"
+                    size="icon"
+                    variant="ghost"
+                    className="h-8 w-8 shrink-0 text-gray-500"
+                    aria-label={`Renommer ${item.name}`}
+                    onClick={() => onStartRename(item)}
+                  >
+                    <Pencil className="h-3.5 w-3.5" />
+                  </Button>
+                  <Button
+                    type="button"
+                    size="icon"
+                    variant="ghost"
+                    className="h-8 w-8 shrink-0 text-gray-500 hover:text-red-600"
+                    aria-label={`Supprimer ${item.name}`}
+                    onClick={() => onDelete(item)}
+                  >
+                    <Trash2 className="h-3.5 w-3.5" />
+                  </Button>
+                </div>
+              )}
+            </div>
           </li>
         ))}
       </ul>
