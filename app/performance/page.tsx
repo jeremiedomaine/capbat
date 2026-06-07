@@ -12,8 +12,7 @@ export default function PerformancePage() {
               Performance
             </h1>
             <p className="text-sm text-gray-500">
-              Une vue claire et visuelle de tes chiffres (encaissements, à venir,
-              relances).
+              Vue saisonnière de la trésorerie, de l&apos;activité et des encaissements.
             </p>
           </header>
           <PerformanceDashboard />

@@ -8,6 +8,7 @@ import {
   Bar,
   BarChart,
   CartesianGrid,
+  Cell,
   Pie,
   PieChart,
   Tooltip as RechartsTooltip,
@@ -16,6 +17,13 @@ import {
 } from "recharts"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select"
 import { EmptyState } from "@/components/empty-state"
 import {
   ChartContainer,
@@ -25,35 +33,63 @@ import {
   ChartTooltipContent,
   type ChartConfig,
 } from "@/components/ui/chart"
+import type { EventType } from "@/lib/event-types"
+import { parseEventType } from "@/lib/event-types"
+import { extractEventYears, pickDefaultSeasonYear } from "@/lib/event-dates"
+import type { PaymentMethod } from "@/lib/payment-methods"
+import {
+  buildAmountsByPaymentStatus,
+  buildCollectedByPaymentMethod,
+  buildEventsByMonth,
+  buildRevenueByEventType,
+  buildRevenueByMonth,
+  computePerformanceSummary,
+  filterRowsByYear,
+  type PerformanceWeddingRow,
+} from "@/lib/performance-metrics"
 
-type PaymentStatus = "pending" | "paid" | "to_collect"
-
-type WeddingRow = {
+type WeddingRow = PerformanceWeddingRow & {
   id: number
-  eventDate: string
-  deposit: { amount: string; status: PaymentStatus }
-  balance: { amount: string; status: PaymentStatus }
   activeAutomationCount?: number
 }
 
-type MonthKey = `${number}-${string}`
-
-/** Couleurs fixes (pas besoin des CSS vars du ChartContainer ; un `fill` sur `<Pie>` les écrase sinon). */
 const STATUS_PIE_COLORS: Record<"paid" | "pending" | "to_collect", string> = {
   paid: "hsl(142 71% 40%)",
   pending: "hsl(48 96% 50%)",
   to_collect: "hsl(28 92% 52%)",
 }
 
+const EVENT_TYPE_COLORS: Record<EventType, string> = {
+  wedding: "hsl(350 65% 55%)",
+  gite: "hsl(200 80% 48%)",
+  other: "hsl(220 10% 46%)",
+}
+
+const PAYMENT_METHOD_COLORS = [
+  "hsl(217 91% 60%)",
+  "hsl(142 71% 40%)",
+  "hsl(28 92% 52%)",
+  "hsl(280 65% 55%)",
+  "hsl(190 70% 42%)",
+  "hsl(220 10% 62%)",
+]
+
 export function PerformanceDashboard() {
   const [rows, setRows] = useState<WeddingRow[]>([])
   const [loading, setLoading] = useState(true)
+  const [selectedYear, setSelectedYear] = useState(() => new Date().getFullYear())
 
   const loadWeddings = useCallback(async () => {
     try {
       const response = await fetch("/api/weddings", { credentials: "same-origin" })
       const payload = (await response.json()) as {
-        weddings?: WeddingRow[]
+        weddings?: Array<
+          WeddingRow & {
+            eventType?: string
+            depositPaymentMethod?: PaymentMethod | ""
+            balancePaymentMethod?: PaymentMethod | ""
+          }
+        >
         error?: string
       }
       if (!response.ok) {
@@ -63,7 +99,13 @@ export function PerformanceDashboard() {
         })
         return
       }
-      setRows(payload.weddings ?? [])
+
+      setRows(
+        (payload.weddings ?? []).map((row) => ({
+          ...row,
+          eventType: parseEventType(row.eventType),
+        }))
+      )
     } catch {
       setRows([])
       toast.error("Réseau", { description: "Impossible de charger les indicateurs." })
@@ -79,89 +121,66 @@ export function PerformanceDashboard() {
     return () => window.removeEventListener("weddings-updated", handler)
   }, [loadWeddings])
 
-  const summary = useMemo(() => {
-    const totalExpected =
-      rows.reduce((sum, row) => sum + parseEuroAmount(row.deposit.amount), 0) +
-      rows.reduce((sum, row) => sum + parseEuroAmount(row.balance.amount), 0)
-
-    const totalCollected =
-      rows
-        .filter((row) => row.deposit.status === "paid")
-        .reduce((sum, row) => sum + parseEuroAmount(row.deposit.amount), 0) +
-      rows
-        .filter((row) => row.balance.status === "paid")
-        .reduce((sum, row) => sum + parseEuroAmount(row.balance.amount), 0)
-
-    const outstanding =
-      rows
-        .filter((row) => row.deposit.status !== "paid")
-        .reduce((sum, row) => sum + parseEuroAmount(row.deposit.amount), 0) +
-      rows
-        .filter((row) => row.balance.status !== "paid")
-        .reduce((sum, row) => sum + parseEuroAmount(row.balance.amount), 0)
-
-    const activeRelances = rows.reduce(
-      (sum, row) => sum + (row.activeAutomationCount ?? 0),
-      0
-    )
-    const totalWeddings = rows.length
-
-    return { totalExpected, totalCollected, outstanding, activeRelances, totalWeddings }
+  useEffect(() => {
+    if (rows.length === 0) return
+    const years = extractEventYears(rows)
+    setSelectedYear((prev) => (years.includes(prev) ? prev : pickDefaultSeasonYear(years)))
   }, [rows])
 
-  const revenueByMonth = useMemo(() => {
-    const map = new Map<MonthKey, { month: string; expected: number; collected: number }>()
+  const availableYears = useMemo(() => {
+    const current = new Date().getFullYear()
+    const merged = new Set([...extractEventYears(rows), current, selectedYear])
+    return [...merged].sort((a, b) => b - a)
+  }, [rows, selectedYear])
 
-    for (const row of rows) {
-      const d = new Date(row.eventDate)
-      if (Number.isNaN(d.getTime())) continue
-      const monthLabel = d.toLocaleDateString("fr-FR", { month: "short", year: "2-digit" })
-      const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}` as MonthKey
-      const expected = parseEuroAmount(row.deposit.amount) + parseEuroAmount(row.balance.amount)
-      const collected =
-        (row.deposit.status === "paid" ? parseEuroAmount(row.deposit.amount) : 0) +
-        (row.balance.status === "paid" ? parseEuroAmount(row.balance.amount) : 0)
+  const seasonRows = useMemo(
+    () => filterRowsByYear(rows, selectedYear),
+    [rows, selectedYear]
+  )
 
-      const previous = map.get(key)
-      if (!previous) {
-        map.set(key, { month: monthLabel, expected, collected })
-      } else {
-        previous.expected += expected
-        previous.collected += collected
-      }
-    }
+  const summary = useMemo(() => computePerformanceSummary(seasonRows), [seasonRows])
+  const revenueByMonth = useMemo(() => buildRevenueByMonth(seasonRows), [seasonRows])
+  const eventsByMonth = useMemo(() => buildEventsByMonth(seasonRows), [seasonRows])
+  const revenueByType = useMemo(() => buildRevenueByEventType(seasonRows), [seasonRows])
+  const amountsByStatus = useMemo(() => buildAmountsByPaymentStatus(seasonRows), [seasonRows])
+  const paymentMethods = useMemo(
+    () => buildCollectedByPaymentMethod(seasonRows),
+    [seasonRows]
+  )
 
-    return [...map.entries()]
-      .sort(([a], [b]) => a.localeCompare(b))
-      .map(([, value]) => value)
-  }, [rows])
+  const statusPieData = useMemo(
+    () =>
+      amountsByStatus.map((entry) => ({
+        ...entry,
+        fill: STATUS_PIE_COLORS[entry.name],
+      })),
+    [amountsByStatus]
+  )
 
-  /**
-   * Acomptes + soldes : chaque ligne contribue deux montants (dépôt + solde),
-   * classés selon le statut de ce paiement (parts du camembert en €).
-   */
-  const depositAndBalanceAmountsByStatus = useMemo(() => {
-    const sums: Record<PaymentStatus, number> = {
-      pending: 0,
-      paid: 0,
-      to_collect: 0,
-    }
-    for (const row of rows) {
-      sums[row.deposit.status] += parseEuroAmount(row.deposit.amount)
-      sums[row.balance.status] += parseEuroAmount(row.balance.amount)
-    }
-    return [
-      { name: "paid", value: sums.paid, fill: STATUS_PIE_COLORS.paid },
-      { name: "pending", value: sums.pending, fill: STATUS_PIE_COLORS.pending },
-      { name: "to_collect", value: sums.to_collect, fill: STATUS_PIE_COLORS.to_collect },
-    ]
-  }, [rows])
+  const paymentPieData = useMemo(
+    () =>
+      paymentMethods.map((entry, index) => ({
+        name: entry.key,
+        label: entry.label,
+        value: entry.value,
+        fill: PAYMENT_METHOD_COLORS[index % PAYMENT_METHOD_COLORS.length],
+      })),
+    [paymentMethods]
+  )
 
   const revenueChartConfig = useMemo(
     () =>
       ({
-        expected: { label: "Prévu", color: "hsl(217 91% 60%)" }, // blue-500-ish
-        collected: { label: "Encaissé", color: "hsl(142 76% 36%)" }, // emerald-600-ish
+        expected: { label: "Prévu", color: "hsl(217 91% 60%)" },
+        collected: { label: "Encaissé", color: "hsl(142 76% 36%)" },
+      }) satisfies ChartConfig,
+    []
+  )
+
+  const eventsChartConfig = useMemo(
+    () =>
+      ({
+        count: { label: "Événements", color: "hsl(217 91% 60%)" },
       }) satisfies ChartConfig,
     []
   )
@@ -175,6 +194,25 @@ export function PerformanceDashboard() {
       }) satisfies ChartConfig,
     []
   )
+
+  const typeChartConfig = useMemo(() => {
+    const config: ChartConfig = {}
+    for (const entry of revenueByType) {
+      config[entry.type] = {
+        label: entry.label,
+        color: EVENT_TYPE_COLORS[entry.type],
+      }
+    }
+    return config
+  }, [revenueByType])
+
+  const paymentChartConfig = useMemo(() => {
+    const config: ChartConfig = {}
+    for (const entry of paymentPieData) {
+      config[entry.name] = { label: entry.label, color: entry.fill }
+    }
+    return config
+  }, [paymentPieData])
 
   if (loading) {
     return (
@@ -190,7 +228,7 @@ export function PerformanceDashboard() {
       <EmptyState
         icon={BarChart3}
         title="Pas encore de données"
-        description="Ajoutez des mariages avec montants et statuts pour voir la prévision, l’encaissement et la répartition des soldes."
+        description="Ajoutez des événements avec montants et statuts pour voir vos indicateurs de saison."
       >
         <Button asChild className="bg-emerald-600 hover:bg-emerald-700">
           <Link href="/evenements/nouveau">Ajouter un événement</Link>
@@ -201,23 +239,59 @@ export function PerformanceDashboard() {
 
   return (
     <div className="space-y-6">
-      <div className="grid grid-cols-1 md:grid-cols-5 gap-4">
-        <KpiCard title="Chiffre prévu" value={formatEuro(summary.totalExpected)} />
-        <KpiCard title="Chiffre encaissé" value={formatEuro(summary.totalCollected)} />
-        <KpiCard title="Reste à encaisser" value={formatEuro(summary.outstanding)} />
-        <KpiCard title="Relances actives" value={`${summary.activeRelances}`} />
-        <KpiCard title="Événements" value={`${summary.totalWeddings}`} />
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <p className="text-sm text-gray-500">
+          Saison <span className="font-medium text-gray-800">{selectedYear}</span>
+          {" · "}
+          {summary.eventCount} événement{summary.eventCount > 1 ? "s" : ""}
+        </p>
+        <Select value={String(selectedYear)} onValueChange={(v) => setSelectedYear(Number(v))}>
+          <SelectTrigger className="w-[140px] bg-white">
+            <SelectValue placeholder="Année" />
+          </SelectTrigger>
+          <SelectContent>
+            {availableYears.map((year) => (
+              <SelectItem key={year} value={String(year)}>
+                {year}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
       </div>
 
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-5">
-        <Card className="lg:col-span-2 bg-white border-gray-100 shadow-sm">
-          <CardHeader className="pb-0">
-            <CardTitle className="text-base text-gray-900">
-              Prévision vs encaissement (par mois)
-            </CardTitle>
-          </CardHeader>
-          <CardContent className="pt-4">
-            <ChartContainer config={revenueChartConfig} className="h-[320px] w-full">
+      <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-4">
+        <KpiCard title="Chiffre prévu" value={formatEuro(summary.totalExpected)} />
+        <KpiCard title="Chiffre encaissé" value={formatEuro(summary.totalCollected)} />
+        <KpiCard title="Taux d'encaissement" value={`${summary.collectionRate} %`} />
+        <KpiCard title="Reste à encaisser" value={formatEuro(summary.outstanding)} />
+        <KpiCard
+          title="Soldes en retard"
+          value={formatEuro(summary.overdueBalanceAmount)}
+          subtext={
+            summary.overdueBalanceCount > 0
+              ? `${summary.overdueBalanceCount} événement${summary.overdueBalanceCount > 1 ? "s" : ""} passé${summary.overdueBalanceCount > 1 ? "s" : ""}`
+              : "Aucun solde en retard"
+          }
+          highlight={summary.overdueBalanceCount > 0}
+        />
+        <KpiCard
+          title="Événements"
+          value={`${summary.eventCount}`}
+          subtext={`Sur la saison ${selectedYear}`}
+        />
+      </div>
+
+      <Card className="bg-white border-gray-100 shadow-sm">
+        <CardHeader className="pb-0">
+          <CardTitle className="text-base text-gray-900">
+            Prévision vs encaissement (par mois)
+          </CardTitle>
+        </CardHeader>
+        <CardContent className="pt-4">
+          {revenueByMonth.length === 0 ? (
+            <ChartEmpty message="Aucun événement daté pour cette saison." />
+          ) : (
+            <ChartContainer config={revenueChartConfig} className="h-[300px] w-full">
               <BarChart data={revenueByMonth} margin={{ left: 8, right: 8, top: 8 }}>
                 <CartesianGrid vertical={false} />
                 <XAxis dataKey="month" tickLine={false} axisLine={false} />
@@ -228,17 +302,83 @@ export function PerformanceDashboard() {
                 <Bar dataKey="collected" fill="var(--color-collected)" radius={[6, 6, 0, 0]} />
               </BarChart>
             </ChartContainer>
+          )}
+        </CardContent>
+      </Card>
+
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
+        <Card className="bg-white border-gray-100 shadow-sm">
+          <CardHeader className="pb-0">
+            <CardTitle className="text-base text-gray-900">Volume d&apos;événements</CardTitle>
+          </CardHeader>
+          <CardContent className="pt-4">
+            {eventsByMonth.length === 0 ? (
+              <ChartEmpty message="Aucun événement sur cette saison." />
+            ) : (
+              <ChartContainer config={eventsChartConfig} className="h-[260px] w-full">
+                <BarChart data={eventsByMonth} margin={{ left: 8, right: 8, top: 8 }}>
+                  <CartesianGrid vertical={false} />
+                  <XAxis dataKey="month" tickLine={false} axisLine={false} />
+                  <YAxis allowDecimals={false} tickLine={false} axisLine={false} />
+                  <ChartTooltip content={<ChartTooltipContent />} />
+                  <Bar dataKey="count" fill="var(--color-count)" radius={[6, 6, 0, 0]} />
+                </BarChart>
+              </ChartContainer>
+            )}
           </CardContent>
         </Card>
 
         <Card className="bg-white border-gray-100 shadow-sm">
           <CardHeader className="pb-0">
+            <CardTitle className="text-base text-gray-900">Chiffre par type</CardTitle>
+          </CardHeader>
+          <CardContent className="pt-4">
+            {revenueByType.length === 0 ? (
+              <ChartEmpty message="Aucun montant renseigné." />
+            ) : (
+              <ChartContainer config={typeChartConfig} className="h-[260px] w-full">
+                <BarChart
+                  data={revenueByType}
+                  layout="vertical"
+                  margin={{ left: 8, right: 24, top: 8 }}
+                >
+                  <CartesianGrid horizontal={false} />
+                  <XAxis type="number" tickLine={false} axisLine={false} hide />
+                  <YAxis
+                    type="category"
+                    dataKey="label"
+                    tickLine={false}
+                    axisLine={false}
+                    width={96}
+                  />
+                  <ChartTooltip
+                    content={
+                      <ChartTooltipContent
+                        formatter={(value) => formatEuro(Number(value))}
+                      />
+                    }
+                  />
+                  <Bar dataKey="value" radius={[0, 6, 6, 0]}>
+                    {revenueByType.map((entry) => (
+                      <Cell key={entry.type} fill={EVENT_TYPE_COLORS[entry.type]} />
+                    ))}
+                  </Bar>
+                </BarChart>
+              </ChartContainer>
+            )}
+          </CardContent>
+        </Card>
+      </div>
+
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
+        <Card className="bg-white border-gray-100 shadow-sm">
+          <CardHeader className="pb-0">
             <CardTitle className="text-base text-gray-900">
-              Acomptes et soldes par statut (montants)
+              Acomptes et soldes par statut
             </CardTitle>
           </CardHeader>
           <CardContent className="pt-4">
-            <ChartContainer config={statusChartConfig} className="h-[320px] w-full">
+            <ChartContainer config={statusChartConfig} className="h-[280px] w-full">
               <PieChart>
                 <RechartsTooltip
                   content={
@@ -259,27 +399,67 @@ export function PerformanceDashboard() {
                   cursor={false}
                 />
                 <Pie
-                  data={depositAndBalanceAmountsByStatus}
+                  data={statusPieData}
                   dataKey="value"
                   nameKey="name"
-                  innerRadius={60}
-                  outerRadius={95}
+                  innerRadius={58}
+                  outerRadius={92}
                   paddingAngle={2}
                   stroke="#ffffff"
                   strokeWidth={2}
-                  labelLine={false}
-                  label={({ name, percent }) => {
-                    const p = typeof percent === "number" ? percent * 100 : 0
-                    if (p < 4) return null
-                    const label = statusChartConfig[String(name)]?.label ?? String(name)
-                    return `${label} (${Math.round(p)}%)`
-                  }}
                 />
               </PieChart>
             </ChartContainer>
-            <div className="pt-3">
-              <LegendInline config={statusChartConfig} data={depositAndBalanceAmountsByStatus} />
-            </div>
+            <LegendInline config={statusChartConfig} data={statusPieData} />
+          </CardContent>
+        </Card>
+
+        <Card className="bg-white border-gray-100 shadow-sm">
+          <CardHeader className="pb-0">
+            <CardTitle className="text-base text-gray-900">
+              Encaissements par moyen de paiement
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="pt-4">
+            {paymentPieData.length === 0 ? (
+              <ChartEmpty message="Aucun paiement encaissé ou moyen renseigné sur la saison." />
+            ) : (
+              <>
+                <ChartContainer config={paymentChartConfig} className="h-[280px] w-full">
+                  <PieChart>
+                    <RechartsTooltip
+                      content={
+                        <ChartTooltipContent
+                          nameKey="name"
+                          formatter={(value, name) => (
+                            <div className="flex w-full min-w-[10rem] justify-between gap-4 tabular-nums">
+                              <span className="text-muted-foreground">
+                                {paymentChartConfig[String(name)]?.label ?? String(name)}
+                              </span>
+                              <span className="font-medium">
+                                {formatEuro(typeof value === "number" ? value : Number(value))}
+                              </span>
+                            </div>
+                          )}
+                        />
+                      }
+                      cursor={false}
+                    />
+                    <Pie
+                      data={paymentPieData}
+                      dataKey="value"
+                      nameKey="name"
+                      innerRadius={58}
+                      outerRadius={92}
+                      paddingAngle={2}
+                      stroke="#ffffff"
+                      strokeWidth={2}
+                    />
+                  </PieChart>
+                </ChartContainer>
+                <PaymentLegend data={paymentPieData} />
+              </>
+            )}
           </CardContent>
         </Card>
       </div>
@@ -287,21 +467,40 @@ export function PerformanceDashboard() {
   )
 }
 
-function KpiCard({ title, value }: { title: string; value: string }) {
+function KpiCard({
+  title,
+  value,
+  subtext,
+  highlight,
+}: {
+  title: string
+  value: string
+  subtext?: string
+  highlight?: boolean
+}) {
   return (
-    <Card className="bg-white border-gray-100 shadow-sm">
+    <Card className={`bg-white border-gray-100 shadow-sm ${highlight ? "border-amber-200" : ""}`}>
       <CardContent className="p-5">
         <p className="text-xs font-medium text-gray-500">{title}</p>
-        <p className="mt-1 text-xl font-semibold text-gray-900 tabular-nums">{value}</p>
+        <p
+          className={`mt-1 text-xl font-semibold tabular-nums ${
+            highlight ? "text-amber-800" : "text-gray-900"
+          }`}
+        >
+          {value}
+        </p>
+        {subtext ? <p className="mt-1 text-xs text-gray-400">{subtext}</p> : null}
       </CardContent>
     </Card>
   )
 }
 
-function parseEuroAmount(value: string) {
-  const cleaned = value.replace(/[^\d,.-]/g, "").replace(",", ".")
-  const parsed = Number.parseFloat(cleaned)
-  return Number.isFinite(parsed) ? parsed : 0
+function ChartEmpty({ message }: { message: string }) {
+  return (
+    <div className="flex h-[220px] items-center justify-center text-sm text-gray-400">
+      {message}
+    </div>
+  )
 }
 
 function formatEuro(value: number) {
@@ -327,7 +526,7 @@ function LegendInline({
   >
 
   return (
-    <div className="flex flex-wrap items-center justify-center gap-4 text-xs text-gray-600">
+    <div className="flex flex-wrap items-center justify-center gap-4 pt-3 text-xs text-gray-600">
       {items.map((item) => (
         <div key={item.key} className="flex items-center gap-2 tabular-nums">
           <span
@@ -336,7 +535,10 @@ function LegendInline({
           />
           <span>
             {config[item.key]?.label ?? item.key}
-            <span className="text-gray-900 font-medium"> · {formatEuro(amountByKey[item.key] ?? 0)}</span>
+            <span className="text-gray-900 font-medium">
+              {" "}
+              · {formatEuro(amountByKey[item.key] ?? 0)}
+            </span>
           </span>
         </div>
       ))}
@@ -344,3 +546,25 @@ function LegendInline({
   )
 }
 
+function PaymentLegend({
+  data,
+}: {
+  data: Array<{ label: string; value: number; fill: string }>
+}) {
+  return (
+    <div className="flex flex-wrap items-center justify-center gap-4 pt-3 text-xs text-gray-600">
+      {data.map((item) => (
+        <div key={item.label} className="flex items-center gap-2 tabular-nums">
+          <span
+            className="inline-block h-2 w-2 rounded-sm"
+            style={{ backgroundColor: item.fill }}
+          />
+          <span>
+            {item.label}
+            <span className="text-gray-900 font-medium"> · {formatEuro(item.value)}</span>
+          </span>
+        </div>
+      ))}
+    </div>
+  )
+}
