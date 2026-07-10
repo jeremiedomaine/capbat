@@ -34,6 +34,7 @@ import { EVENT_TYPE_LABELS, type EventType } from "@/lib/event-types"
 import { buildAutomationVariableMap, renderTemplate } from "@/lib/email-template"
 import { isValidEmail } from "@/lib/form-validation"
 import { getStoredContactEmail, PROFILE_EVENTS } from "@/lib/profile-local-storage"
+import { loadWorkspaceSettings } from "@/lib/workspace-settings-client"
 import { cn } from "@/lib/utils"
 
 const VARIABLES = [
@@ -140,6 +141,12 @@ export function AutomationsWorkspace() {
   useEffect(() => {
     const sync = () => setTestRecipientEmail(getStoredContactEmail()?.trim() ?? "")
     sync()
+    loadWorkspaceSettings()
+      .then((settings) => {
+        const remote = settings.contactEmail?.trim()
+        if (remote) setTestRecipientEmail(remote)
+      })
+      .catch(() => undefined)
     window.addEventListener(PROFILE_EVENTS.contactEmail, sync)
     return () => window.removeEventListener(PROFILE_EVENTS.contactEmail, sync)
   }, [])

@@ -6,7 +6,7 @@ import {
 } from "@/lib/automation-preview-sample"
 import { buildAutomationVariableMap, renderTemplate } from "@/lib/email-template"
 import { isValidEmail } from "@/lib/form-validation"
-import { getResendClient } from "@/lib/resend"
+import { sendResendEmail } from "@/lib/resend-send"
 
 export async function POST(request: Request) {
   const denied = await gateInternalToolAccess()
@@ -81,17 +81,15 @@ export async function POST(request: Request) {
   const textRendered = renderTemplate(messageRaw, vars)
 
   try {
-    const resend = getResendClient()
-    await resend.emails.send({
+    const { id } = await sendResendEmail({
       from: fromEmail,
       to,
       subject: `[Test] ${subjectRendered}`,
       text: textRendered,
     })
+    return NextResponse.json({ ok: true, to, id })
   } catch (error) {
     const message = error instanceof Error ? error.message : "Erreur Resend."
     return NextResponse.json({ error: message }, { status: 502 })
   }
-
-  return NextResponse.json({ ok: true, to })
 }

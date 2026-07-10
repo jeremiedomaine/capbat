@@ -19,3 +19,5 @@ node_modules
 # Factures locales (repli fichier ; prod = Supabase)
 data/invoices.json
 data/workspace-settings.json
+.vercel
+.env*

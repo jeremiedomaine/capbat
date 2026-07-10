@@ -13,7 +13,7 @@ import {
   shouldRunScheduledSend,
 } from "@/lib/automation-schedule"
 import { buildAutomationVariableMap, renderTemplate } from "@/lib/email-template"
-import { getResendClient } from "@/lib/resend"
+import { sendResendEmail } from "@/lib/resend-send"
 import { listWeddings, type Wedding } from "@/lib/weddings-store"
 
 export type AutomationRunResult = {
@@ -69,7 +69,6 @@ export async function runAutomations(options: RunOptions = {}): Promise<Automati
   const sentKeys = await loadSentLogKeys()
 
   const fromEmail = process.env.RESEND_FROM_EMAIL
-  const resend = dryRun ? null : getResendClient()
 
   if (!dryRun && !fromEmail) {
     throw new Error("RESEND_FROM_EMAIL manquante.")
@@ -87,7 +86,6 @@ export async function runAutomations(options: RunOptions = {}): Promise<Automati
       calendarDate,
       dryRun,
       skipSchedule,
-      resend,
       fromEmail: fromEmail ?? "",
     })
     results.push(automationResult)
@@ -111,10 +109,9 @@ async function processAutomation(ctx: {
   calendarDate: string
   dryRun: boolean
   skipSchedule: boolean
-  resend: ReturnType<typeof getResendClient> | null
   fromEmail: string
 }) {
-  const { automation, weddings, enabledKeys, sentKeys, timeZone, calendarDate, dryRun, skipSchedule, resend, fromEmail } =
+  const { automation, weddings, enabledKeys, sentKeys, timeZone, calendarDate, dryRun, skipSchedule, fromEmail } =
     ctx
 
   if (!dryRun && !skipSchedule && automation.lastRunParisDate === calendarDate) {
@@ -163,7 +160,7 @@ async function processAutomation(ctx: {
     const daysAfter = automation.dayOffset > 0 ? automation.dayOffset : undefined
     const vars = buildAutomationVariableMap(wedding, daysAhead, daysAfter)
     try {
-      await resend!.emails.send({
+      await sendResendEmail({
         from: fromEmail,
         to: wedding.email,
         subject: renderTemplate(automation.subjectTemplate, vars),
