@@ -1,7 +1,7 @@
 "use client"
 
 import { Suspense, useState } from "react"
-import { useRouter, useSearchParams } from "next/navigation"
+import { useSearchParams } from "next/navigation"
 import Link from "next/link"
 import { createClient } from "@/lib/supabase/client"
 import { getPublicAppName, getPublicAuthIntro } from "@/lib/branding-public"
@@ -12,7 +12,6 @@ import { toast } from "sonner"
 import { Button } from "@/components/ui/button"
 
 function LoginForm() {
-  const router = useRouter()
   const searchParams = useSearchParams()
   const next = searchParams.get("next") || "/"
   const resetOk = searchParams.get("reset") === "ok"
@@ -43,8 +42,7 @@ function LoginForm() {
       }
 
       toast.success("Connexion réussie")
-      router.push(next.startsWith("/") ? next : "/")
-      router.refresh()
+      window.location.assign(next.startsWith("/") && next !== "/login" ? next : "/")
     } catch (err) {
       const message =
         err instanceof Error ? err.message : "Impossible de se connecter. Réessayez plus tard."

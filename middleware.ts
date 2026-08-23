@@ -1,5 +1,4 @@
 import { type NextRequest, NextResponse } from "next/server"
-import { updateSession } from "@/lib/supabase/middleware"
 
 function isPublicAuthPath(pathname: string) {
   return (
@@ -9,27 +8,41 @@ function isPublicAuthPath(pathname: string) {
   )
 }
 
-function fallbackResponse(request: NextRequest) {
-  const pathname = request.nextUrl.pathname
-  if (pathname.startsWith("/api/")) {
-    return NextResponse.json({ error: "Middleware indisponible." }, { status: 503 })
-  }
-  if (isPublicAuthPath(pathname)) {
-    return NextResponse.next({ request })
-  }
-  const login = request.nextUrl.clone()
-  login.pathname = "/login"
-  login.searchParams.set("next", pathname)
-  return NextResponse.redirect(login)
+function isAutomationEndpoint(pathname: string) {
+  return (
+    pathname.startsWith("/api/automations/run") ||
+    pathname.startsWith("/api/automations/deposit-reminder") ||
+    pathname.startsWith("/api/automations/post-event-reminder")
+  )
 }
 
-export async function middleware(request: NextRequest) {
-  try {
-    return await updateSession(request)
-  } catch (error) {
-    console.error("[middleware] invocation failed", error)
-    return fallbackResponse(request)
+function hasSupabaseAuthCookie(request: NextRequest) {
+  return request.cookies.getAll().some((cookie) => cookie.name.includes("-auth-token"))
+}
+
+export function middleware(request: NextRequest) {
+  const pathname = request.nextUrl.pathname
+
+  if (isAutomationEndpoint(pathname)) {
+    return NextResponse.next()
   }
+
+  const signedIn = hasSupabaseAuthCookie(request)
+
+  if (!signedIn) {
+    if (pathname.startsWith("/api/")) {
+      return NextResponse.json({ error: "Non autorisé." }, { status: 401 })
+    }
+    if (isPublicAuthPath(pathname)) {
+      return NextResponse.next()
+    }
+    const login = request.nextUrl.clone()
+    login.pathname = "/login"
+    login.searchParams.set("next", pathname)
+    return NextResponse.redirect(login)
+  }
+
+  return NextResponse.next()
 }
 
 export const config = {

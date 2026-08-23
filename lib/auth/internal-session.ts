@@ -4,10 +4,17 @@ import { createClient } from "@/lib/supabase/server"
 /** Retourne null si OK, sinon la réponse Next à retourner telle quelle. */
 export async function gateInternalToolAccess(): Promise<Response | null> {
   const supabase = await createClient()
-  const {
-    data: { user },
-    error,
-  } = await supabase.auth.getUser()
+  const auth = await Promise.race([
+    supabase.auth.getUser(),
+    new Promise<{ data: { user: null }; error: Error }>((resolve) => {
+      setTimeout(
+        () => resolve({ data: { user: null }, error: new Error("Auth timeout") }),
+        8000
+      )
+    }),
+  ])
+  const user = auth.data.user
+  const error = "error" in auth ? auth.error : null
 
   if (error || !user) {
     return NextResponse.json({ error: "Non autorisé." }, { status: 401 })
