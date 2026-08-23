@@ -2,11 +2,55 @@ import { createServerClient } from "@supabase/ssr"
 import { NextResponse, type NextRequest } from "next/server"
 import { getSupabasePublicKey, getSupabasePublicUrl } from "@/lib/supabase/env-public"
 
+const AUTH_FETCH_TIMEOUT_MS = 4000
+
 function resolvePublicSupabaseConfig() {
   return { url: getSupabasePublicUrl(), key: getSupabasePublicKey() }
 }
 
-export async function updateSession(request: NextRequest) {
+function isPublicAuthPath(pathname: string) {
+  return (
+    pathname.startsWith("/login") ||
+    pathname.startsWith("/auth/forgot-password") ||
+    pathname.startsWith("/auth/update-password")
+  )
+}
+
+function hasSupabaseAuthCookie(request: NextRequest) {
+  return request.cookies.getAll().some((cookie) => cookie.name.includes("-auth-token"))
+}
+
+function fetchWithTimeout(
+  input: RequestInfo | URL,
+  init: RequestInit | undefined,
+  outerSignal?: AbortSignal
+) {
+  const controller = new AbortController()
+  const timer = setTimeout(() => controller.abort(), AUTH_FETCH_TIMEOUT_MS)
+  const abortFromOuter = () => controller.abort()
+  outerSignal?.addEventListener("abort", abortFromOuter)
+  init?.signal?.addEventListener("abort", abortFromOuter)
+  return fetch(input, { ...init, signal: controller.signal }).finally(() => {
+    clearTimeout(timer)
+    outerSignal?.removeEventListener("abort", abortFromOuter)
+  })
+}
+
+function unauthenticatedResponse(request: NextRequest) {
+  const pathname = request.nextUrl.pathname
+  if (pathname.startsWith("/api/")) {
+    return NextResponse.json({ error: "Non autorisé." }, { status: 401 })
+  }
+  if (isPublicAuthPath(pathname)) {
+    return NextResponse.next({ request })
+  }
+  const url = request.nextUrl.clone()
+  url.pathname = "/login"
+  url.searchParams.set("next", pathname)
+  return NextResponse.redirect(url)
+}
+
+export async function updateSession(request: NextRequest, abortSignal?: AbortSignal) {
   const pathname = request.nextUrl.pathname
 
   const isAutomationEndpoint =
@@ -22,11 +66,7 @@ export async function updateSession(request: NextRequest) {
     console.error(
       "[middleware] NEXT_PUBLIC_SUPABASE_URL ou clé publique manquante (PUBLISHABLE_KEY ou ANON_KEY)."
     )
-    if (
-      pathname.startsWith("/login") ||
-      pathname.startsWith("/auth/forgot-password") ||
-      pathname.startsWith("/auth/update-password")
-    ) {
+    if (isPublicAuthPath(pathname)) {
       return NextResponse.next({ request })
     }
     if (pathname.startsWith("/api/")) {
@@ -38,10 +78,17 @@ export async function updateSession(request: NextRequest) {
     return NextResponse.redirect(login)
   }
 
+  if (!hasSupabaseAuthCookie(request)) {
+    return unauthenticatedResponse(request)
+  }
+
   try {
     let response = NextResponse.next({ request })
 
     const supabase = createServerClient(supabaseUrl, supabaseKey, {
+      global: {
+        fetch: (input, init) => fetchWithTimeout(input, init, abortSignal),
+      },
       cookies: {
         getAll() {
           return request.cookies.getAll()
@@ -56,35 +103,18 @@ export async function updateSession(request: NextRequest) {
       },
     })
 
-    const {
-      data: { user },
-      error: authError,
-    } = await supabase.auth.getUser()
+    const { data, error: authError } = await supabase.auth.getClaims()
+    const user = data?.claims
 
     if (authError) {
-      console.warn("[middleware] auth.getUser:", authError.message)
+      console.warn("[middleware] auth.getClaims:", authError.message)
     }
-
-    const isLogin = pathname.startsWith("/login")
-    const isPublicAuth =
-      isLogin ||
-      pathname.startsWith("/auth/forgot-password") ||
-      pathname.startsWith("/auth/update-password")
 
     if (!user) {
-      if (pathname.startsWith("/api/")) {
-        return NextResponse.json({ error: "Non autorisé." }, { status: 401 })
-      }
-      if (!isPublicAuth) {
-        const url = request.nextUrl.clone()
-        url.pathname = "/login"
-        url.searchParams.set("next", pathname)
-        return NextResponse.redirect(url)
-      }
-      return response
+      return unauthenticatedResponse(request)
     }
 
-    if (user && isLogin) {
+    if (pathname.startsWith("/login")) {
       return NextResponse.redirect(new URL("/", request.url))
     }
 
@@ -93,6 +123,9 @@ export async function updateSession(request: NextRequest) {
     console.error("[middleware]", error)
     if (pathname.startsWith("/api/")) {
       return NextResponse.json({ error: "Middleware indisponible." }, { status: 503 })
+    }
+    if (isPublicAuthPath(pathname)) {
+      return NextResponse.next({ request })
     }
     const login = request.nextUrl.clone()
     login.pathname = "/login"
