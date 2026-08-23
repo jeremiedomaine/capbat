@@ -12,6 +12,15 @@ export async function createClient() {
 
   return createServerClient(url, key,
     {
+      global: {
+        fetch: (input, init) => {
+          const controller = new AbortController()
+          const timer = setTimeout(() => controller.abort(), 8000)
+          return fetch(input, { ...init, signal: controller.signal }).finally(() => {
+            clearTimeout(timer)
+          })
+        },
+      },
       cookies: {
         getAll() {
           return cookieStore.getAll()

@@ -2,7 +2,7 @@ import { createServerClient } from "@supabase/ssr"
 import { NextResponse, type NextRequest } from "next/server"
 import { getSupabasePublicKey, getSupabasePublicUrl } from "@/lib/supabase/env-public"
 
-const AUTH_FETCH_TIMEOUT_MS = 4000
+const AUTH_FETCH_TIMEOUT_MS = 2500
 
 function resolvePublicSupabaseConfig() {
   return { url: getSupabasePublicUrl(), key: getSupabasePublicKey() }
@@ -20,19 +20,14 @@ function hasSupabaseAuthCookie(request: NextRequest) {
   return request.cookies.getAll().some((cookie) => cookie.name.includes("-auth-token"))
 }
 
-function fetchWithTimeout(
-  input: RequestInfo | URL,
-  init: RequestInit | undefined,
-  outerSignal?: AbortSignal
-) {
+function fetchWithTimeout(input: RequestInfo | URL, init?: RequestInit) {
   const controller = new AbortController()
   const timer = setTimeout(() => controller.abort(), AUTH_FETCH_TIMEOUT_MS)
-  const abortFromOuter = () => controller.abort()
-  outerSignal?.addEventListener("abort", abortFromOuter)
-  init?.signal?.addEventListener("abort", abortFromOuter)
+  const abortFromInit = () => controller.abort()
+  init?.signal?.addEventListener("abort", abortFromInit)
   return fetch(input, { ...init, signal: controller.signal }).finally(() => {
     clearTimeout(timer)
-    outerSignal?.removeEventListener("abort", abortFromOuter)
+    init?.signal?.removeEventListener("abort", abortFromInit)
   })
 }
 
@@ -50,7 +45,7 @@ function unauthenticatedResponse(request: NextRequest) {
   return NextResponse.redirect(url)
 }
 
-export async function updateSession(request: NextRequest, abortSignal?: AbortSignal) {
+export async function updateSession(request: NextRequest) {
   const pathname = request.nextUrl.pathname
 
   const isAutomationEndpoint =
@@ -87,7 +82,7 @@ export async function updateSession(request: NextRequest, abortSignal?: AbortSig
 
     const supabase = createServerClient(supabaseUrl, supabaseKey, {
       global: {
-        fetch: (input, init) => fetchWithTimeout(input, init, abortSignal),
+        fetch: fetchWithTimeout,
       },
       cookies: {
         getAll() {
@@ -121,14 +116,13 @@ export async function updateSession(request: NextRequest, abortSignal?: AbortSig
     return response
   } catch (error) {
     console.error("[middleware]", error)
+    // Cookie présent mais Auth trop lent / coupé : ne pas rediriger en boucle.
     if (pathname.startsWith("/api/")) {
-      return NextResponse.json({ error: "Middleware indisponible." }, { status: 503 })
+      return NextResponse.next({ request })
     }
     if (isPublicAuthPath(pathname)) {
       return NextResponse.next({ request })
     }
-    const login = request.nextUrl.clone()
-    login.pathname = "/login"
-    return NextResponse.redirect(login)
+    return NextResponse.next({ request })
   }
 }
