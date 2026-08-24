@@ -1,13 +1,19 @@
 import { getSupabaseAdmin } from "@/lib/supabase/admin"
 import { parseEventType, type EventType } from "@/lib/event-types"
 import { parsePaymentMethod, type PaymentMethod } from "@/lib/payment-methods"
+import {
+  parseTouristTaxStatus,
+  type TouristTaxStatus,
+  type WeddingTouristTax,
+} from "@/lib/tourist-tax"
 import { type WeddingDetailFields } from "@/lib/wedding-details"
 import { type WeddingPaymentTracking } from "@/lib/wedding-payments"
 
 const db = () => getSupabaseAdmin()
 
 export type Wedding = WeddingDetailFields &
-  WeddingPaymentTracking & {
+  WeddingPaymentTracking &
+  WeddingTouristTax & {
   id: number
   eventType: EventType
   couple: string
@@ -36,10 +42,17 @@ export type NewWeddingInput = WeddingDetailFields & {
   depositAmount: string
   balanceAmount: string
   autopilot: boolean
+  depositAlreadyPaid?: boolean
+  depositPaidDate?: string
+  depositPaymentMethod?: PaymentMethod | ""
+  touristTaxStatus?: TouristTaxStatus | ""
+  touristTaxAmount?: string
+  touristTaxPaidDate?: string
 }
 
 export type UpdateWeddingInput = Partial<WeddingDetailFields> &
-  Partial<WeddingPaymentTracking> & {
+  Partial<WeddingPaymentTracking> &
+  Partial<WeddingTouristTax> & {
   eventType?: EventType
   couple?: string
   contactName?: string
@@ -49,6 +62,7 @@ export type UpdateWeddingInput = Partial<WeddingDetailFields> &
   depositAmount?: string
   balanceAmount?: string
   autopilot?: boolean
+  depositStatus?: PaymentStatus
 }
 
 const RESERVATIONS_TABLE = process.env.SUPABASE_RESERVATIONS_TABLE
@@ -73,6 +87,13 @@ export async function listWeddings(): Promise<Wedding[]> {
 
 export async function createWedding(input: NewWeddingInput): Promise<Wedding> {
   const tableName = await resolveReservationsTableName()
+  const spouse1Phone = (input.spouse1Phone ?? "").trim()
+  const spouse2Phone = (input.spouse2Phone ?? "").trim()
+  const primaryPhone = input.phone.trim() || spouse1Phone || spouse2Phone
+  const depositAlreadyPaid = input.depositAlreadyPaid === true
+  const touristTaxStatus = parseTouristTaxStatus(input.touristTaxStatus)
+  const touristTaxAmountRaw = (input.touristTaxAmount ?? "").trim()
+
   const payload: ReservationWrite = {
     event_type: input.eventType,
     event_name: input.eventName.trim(),
@@ -80,24 +101,39 @@ export async function createWedding(input: NewWeddingInput): Promise<Wedding> {
     spouse1_last_name: input.spouse1LastName.trim(),
     spouse2_first_name: input.spouse2FirstName.trim(),
     spouse2_last_name: input.spouse2LastName.trim(),
+    spouse1_phone: spouse1Phone || null,
+    spouse2_phone: spouse2Phone || null,
     postal_address: input.postalAddress.trim(),
     comments: input.comments.trim(),
     couple: input.couple.trim(),
     contact_name: input.contactName.trim(),
     email: input.email.trim(),
-    phone: input.phone.trim(),
+    phone: primaryPhone,
     event_date: input.eventDate,
     deposit_amount: parseAmount(input.depositAmount),
     balance_amount: parseAmount(input.balanceAmount),
-    deposit_status: "pending",
+    deposit_status: depositAlreadyPaid ? "paid" : "pending",
     balance_status: "to_collect",
+    deposit_paid_date: depositAlreadyPaid
+      ? normalizeOptionalDate(input.depositPaidDate ?? null)
+      : null,
+    deposit_payment_method: depositAlreadyPaid
+      ? normalizeOptionalPaymentMethod(input.depositPaymentMethod ?? "")
+      : null,
+    tourist_tax_status: touristTaxStatus || null,
+    tourist_tax_amount:
+      touristTaxAmountRaw !== "" ? parseAmount(touristTaxAmountRaw) : null,
+    tourist_tax_paid_date:
+      touristTaxStatus === "paid"
+        ? normalizeOptionalDate(input.touristTaxPaidDate ?? null)
+        : null,
     autopilot: input.autopilot,
     message_template: null,
     last_activity: "Créé aujourd'hui",
   }
   const insertPayload = toTablePayload(tableName, payload)
 
-  const { data, error } = await db().from(tableName).insert(insertPayload).select("*").single()
+  const { data, error } = await insertReservationRow(tableName, insertPayload)
   if (error) {
     throw new Error(`Supabase create failed: ${error.message}`)
   }
@@ -176,6 +212,8 @@ export async function updateWedding(weddingId: number, input: UpdateWeddingInput
   if (typeof input.spouse1LastName === "string") patch.spouse1_last_name = input.spouse1LastName.trim()
   if (typeof input.spouse2FirstName === "string") patch.spouse2_first_name = input.spouse2FirstName.trim()
   if (typeof input.spouse2LastName === "string") patch.spouse2_last_name = input.spouse2LastName.trim()
+  if (typeof input.spouse1Phone === "string") patch.spouse1_phone = input.spouse1Phone.trim() || null
+  if (typeof input.spouse2Phone === "string") patch.spouse2_phone = input.spouse2Phone.trim() || null
   if (typeof input.postalAddress === "string") patch.postal_address = input.postalAddress.trim()
   if (typeof input.comments === "string") patch.comments = input.comments.trim()
   if (typeof input.couple === "string") patch.couple = input.couple.trim()
@@ -186,6 +224,7 @@ export async function updateWedding(weddingId: number, input: UpdateWeddingInput
   if (typeof input.depositAmount === "string") patch.deposit_amount = parseAmount(input.depositAmount)
   if (typeof input.balanceAmount === "string") patch.balance_amount = parseAmount(input.balanceAmount)
   if (typeof input.autopilot === "boolean") patch.autopilot = input.autopilot
+  if (input.depositStatus) patch.deposit_status = input.depositStatus
   if (input.depositPaidDate !== undefined) {
     patch.deposit_paid_date = normalizeOptionalDate(input.depositPaidDate)
   }
@@ -198,14 +237,24 @@ export async function updateWedding(weddingId: number, input: UpdateWeddingInput
   if (input.balancePaymentMethod !== undefined) {
     patch.balance_payment_method = normalizeOptionalPaymentMethod(input.balancePaymentMethod)
   }
+  if (input.touristTaxStatus !== undefined) {
+    const status = parseTouristTaxStatus(input.touristTaxStatus)
+    patch.tourist_tax_status = status || null
+  }
+  if (input.touristTaxAmount !== undefined) {
+    const raw = input.touristTaxAmount.trim()
+    patch.tourist_tax_amount = raw !== "" ? parseAmount(raw) : null
+  }
+  if (input.touristTaxPaidDate !== undefined) {
+    patch.tourist_tax_paid_date = normalizeOptionalDate(input.touristTaxPaidDate)
+  }
   const updatePayload = toTablePayload(tableName, patch)
 
-  const { data, error } = await db()
-    .from(tableName)
-    .update(updatePayload)
-    .eq(rowFilter.column, rowFilter.value)
-    .select("*")
-    .maybeSingle()
+  const { data, error } = await updateReservationRow(
+    tableName,
+    rowFilter,
+    updatePayload
+  )
 
   if (error) {
     throw new Error(`Supabase update failed: ${error.message}`)
@@ -302,6 +351,8 @@ type ReservationRow = {
   spouse1_last_name?: string | null
   spouse2_first_name?: string | null
   spouse2_last_name?: string | null
+  spouse1_phone?: string | null
+  spouse2_phone?: string | null
   postal_address?: string | null
   comments?: string | null
   contact_name?: string | null
@@ -324,6 +375,9 @@ type ReservationRow = {
   deposit_payment_method?: string | null
   balance_paid_date?: string | null
   balance_payment_method?: string | null
+  tourist_tax_status?: string | null
+  tourist_tax_amount?: number | string | null
+  tourist_tax_paid_date?: string | null
   post_event_reminder_sent_date?: string | null
   autopilot?: boolean | null
   last_activity?: string | null
@@ -339,6 +393,8 @@ type ReservationWrite = {
   spouse1_last_name?: string
   spouse2_first_name?: string
   spouse2_last_name?: string
+  spouse1_phone?: string | null
+  spouse2_phone?: string | null
   postal_address?: string
   comments?: string
   couple?: string
@@ -354,6 +410,9 @@ type ReservationWrite = {
   deposit_payment_method?: string | null
   balance_paid_date?: string | null
   balance_payment_method?: string | null
+  tourist_tax_status?: string | null
+  tourist_tax_amount?: number | null
+  tourist_tax_paid_date?: string | null
   autopilot?: boolean
   message_template?: string | null
   last_activity?: string
@@ -371,6 +430,7 @@ function mapReservationToWedding(row: ReservationRow, index = 0): Wedding {
     eventType: parseEventType(row.event_type ?? row.eventType),
     ...mapReservationDetails(row),
     ...mapReservationPaymentTracking(row),
+    ...mapReservationTouristTax(row),
     couple: row.couple ?? coupleFallback,
     contactName,
     email,
@@ -399,6 +459,18 @@ function mapReservationPaymentTracking(row: ReservationRow): WeddingPaymentTrack
   }
 }
 
+function mapReservationTouristTax(row: ReservationRow): WeddingTouristTax {
+  const amount = row.tourist_tax_amount
+  return {
+    touristTaxStatus: parseTouristTaxStatus(row.tourist_tax_status),
+    touristTaxAmount:
+      amount === null || amount === undefined || amount === ""
+        ? ""
+        : String(amount),
+    touristTaxPaidDate: normalizeStoredDate(row.tourist_tax_paid_date),
+  }
+}
+
 function normalizeStoredDate(raw: string | null | undefined): string {
   if (!raw) return ""
   return raw.slice(0, 10)
@@ -422,6 +494,8 @@ function mapReservationDetails(row: ReservationRow): WeddingDetailFields {
     spouse1LastName: row.spouse1_last_name ?? "",
     spouse2FirstName: row.spouse2_first_name ?? "",
     spouse2LastName: row.spouse2_last_name ?? "",
+    spouse1Phone: row.spouse1_phone ?? "",
+    spouse2Phone: row.spouse2_phone ?? "",
     postalAddress: row.postal_address ?? "",
     comments: row.comments ?? "",
   }
@@ -521,6 +595,56 @@ function toTablePayload(tableName: string, payload: ReservationWrite) {
       ? "à percevoir"
       : "confirmé"
   return legacy
+}
+
+const OPTIONAL_SCHEMA_KEYS = [
+  "spouse1_phone",
+  "spouse2_phone",
+  "tourist_tax_status",
+  "tourist_tax_amount",
+  "tourist_tax_paid_date",
+] as const
+
+function stripOptionalSchemaFields(payload: ReservationWrite): ReservationWrite {
+  const next = { ...payload }
+  for (const key of OPTIONAL_SCHEMA_KEYS) {
+    delete next[key]
+  }
+  return next
+}
+
+function isMissingOptionalColumnError(message: string) {
+  return OPTIONAL_SCHEMA_KEYS.some((key) => message.includes(key))
+}
+
+async function insertReservationRow(tableName: string, payload: ReservationWrite) {
+  const first = await db().from(tableName).insert(payload).select("*").single()
+  if (!first.error || !isMissingOptionalColumnError(first.error.message)) {
+    return first
+  }
+  return db().from(tableName).insert(stripOptionalSchemaFields(payload)).select("*").single()
+}
+
+async function updateReservationRow(
+  tableName: string,
+  rowFilter: { column: string; value: string | number },
+  payload: ReservationWrite
+) {
+  const first = await db()
+    .from(tableName)
+    .update(payload)
+    .eq(rowFilter.column, rowFilter.value)
+    .select("*")
+    .maybeSingle()
+  if (!first.error || !isMissingOptionalColumnError(first.error.message)) {
+    return first
+  }
+  return db()
+    .from(tableName)
+    .update(stripOptionalSchemaFields(payload))
+    .eq(rowFilter.column, rowFilter.value)
+    .select("*")
+    .maybeSingle()
 }
 
 async function fetchRowByFilter(

@@ -2,6 +2,7 @@ import { NextResponse } from "next/server"
 import { gateInternalToolAccess } from "@/lib/auth/internal-session"
 import { parseEventType } from "@/lib/event-types"
 import { parsePaymentMethod } from "@/lib/payment-methods"
+import { parseTouristTaxStatus } from "@/lib/tourist-tax"
 import { deleteWedding, getWeddingById, updateWedding } from "@/lib/weddings-store"
 
 export async function GET(
@@ -51,6 +52,8 @@ export async function PATCH(
       contactName?: string
       email?: string
       phone?: string
+      spouse1Phone?: string
+      spouse2Phone?: string
       eventDate?: string
       depositAmount?: string
       balanceAmount?: string
@@ -59,6 +62,9 @@ export async function PATCH(
       depositPaymentMethod?: string | null
       balancePaidDate?: string | null
       balancePaymentMethod?: string | null
+      touristTaxStatus?: string | null
+      touristTaxAmount?: string | null
+      touristTaxPaidDate?: string | null
     }
 
     const updated = await updateWedding(weddingId, {
@@ -67,6 +73,8 @@ export async function PATCH(
       contactName: body.contactName,
       email: body.email,
       phone: body.phone,
+      spouse1Phone: body.spouse1Phone,
+      spouse2Phone: body.spouse2Phone,
       eventDate: body.eventDate,
       depositAmount: body.depositAmount,
       balanceAmount: body.balanceAmount,
@@ -81,6 +89,14 @@ export async function PATCH(
         body.balancePaymentMethod === undefined
           ? undefined
           : parsePaymentMethod(body.balancePaymentMethod),
+      touristTaxStatus:
+        body.touristTaxStatus === undefined
+          ? undefined
+          : parseTouristTaxStatus(body.touristTaxStatus),
+      touristTaxAmount:
+        body.touristTaxAmount === undefined ? undefined : body.touristTaxAmount ?? "",
+      touristTaxPaidDate:
+        body.touristTaxPaidDate === undefined ? undefined : body.touristTaxPaidDate ?? "",
     })
     if (!updated) {
       return NextResponse.json({ error: "Evenement introuvable." }, { status: 404 })

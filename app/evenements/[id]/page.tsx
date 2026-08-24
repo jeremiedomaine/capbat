@@ -24,6 +24,10 @@ import {
   PAYMENT_METHOD_OPTIONS,
   type PaymentMethod,
 } from "@/lib/payment-methods"
+import {
+  TOURIST_TAX_STATUS_LABELS,
+  type TouristTaxStatus,
+} from "@/lib/tourist-tax"
 import { EventAutomationsCard } from "@/components/event-automations-card"
 import { formatSpouseName } from "@/lib/wedding-display"
 
@@ -37,6 +41,8 @@ type WeddingDetail = {
   spouse1LastName: string
   spouse2FirstName: string
   spouse2LastName: string
+  spouse1Phone: string
+  spouse2Phone: string
   postalAddress: string
   comments: string
   email: string
@@ -48,6 +54,9 @@ type WeddingDetail = {
   depositPaymentMethod: PaymentMethod | ""
   balancePaidDate: string
   balancePaymentMethod: PaymentMethod | ""
+  touristTaxStatus: TouristTaxStatus | ""
+  touristTaxAmount: string
+  touristTaxPaidDate: string
   autopilot: boolean
   lastActivity: string
 }
@@ -71,6 +80,9 @@ export default function EventDetailPage() {
   const [depositPaymentMethod, setDepositPaymentMethod] = useState<PaymentMethod | "">("")
   const [balancePaidDate, setBalancePaidDate] = useState("")
   const [balancePaymentMethod, setBalancePaymentMethod] = useState<PaymentMethod | "">("")
+  const [touristTaxStatus, setTouristTaxStatus] = useState<TouristTaxStatus | "">("")
+  const [touristTaxAmount, setTouristTaxAmount] = useState("")
+  const [touristTaxPaidDate, setTouristTaxPaidDate] = useState("")
   const [savingPayments, setSavingPayments] = useState(false)
 
   useEffect(() => {
@@ -91,6 +103,9 @@ export default function EventDetailPage() {
           setDepositPaymentMethod(payload.wedding.depositPaymentMethod)
           setBalancePaidDate(payload.wedding.balancePaidDate.slice(0, 10))
           setBalancePaymentMethod(payload.wedding.balancePaymentMethod)
+          setTouristTaxStatus(payload.wedding.touristTaxStatus ?? "")
+          setTouristTaxAmount(payload.wedding.touristTaxAmount ?? "")
+          setTouristTaxPaidDate((payload.wedding.touristTaxPaidDate ?? "").slice(0, 10))
         }
       } catch (e) {
         if (!cancelled) {
@@ -119,6 +134,9 @@ export default function EventDetailPage() {
           depositPaymentMethod,
           balancePaidDate,
           balancePaymentMethod,
+          touristTaxStatus,
+          touristTaxAmount,
+          touristTaxPaidDate,
         }),
       })
       const payload = (await response.json()) as { wedding?: WeddingDetail; error?: string }
@@ -131,6 +149,9 @@ export default function EventDetailPage() {
         setDepositPaymentMethod(payload.wedding.depositPaymentMethod)
         setBalancePaidDate(payload.wedding.balancePaidDate.slice(0, 10))
         setBalancePaymentMethod(payload.wedding.balancePaymentMethod)
+        setTouristTaxStatus(payload.wedding.touristTaxStatus ?? "")
+        setTouristTaxAmount(payload.wedding.touristTaxAmount ?? "")
+        setTouristTaxPaidDate((payload.wedding.touristTaxPaidDate ?? "").slice(0, 10))
       }
       window.dispatchEvent(new Event("weddings-updated"))
       toast.success("Suivi des paiements enregistré")
@@ -215,10 +236,12 @@ export default function EventDetailPage() {
                       label="Marié(e) 1"
                       value={formatSpouseName(wedding.spouse1FirstName, wedding.spouse1LastName)}
                     />
+                    <DetailField label="Téléphone marié(e) 1" value={wedding.spouse1Phone} />
                     <DetailField
                       label="Marié(e) 2"
                       value={formatSpouseName(wedding.spouse2FirstName, wedding.spouse2LastName)}
                     />
+                    <DetailField label="Téléphone marié(e) 2" value={wedding.spouse2Phone} />
                   </CardContent>
                 </Card>
               ) : (
@@ -353,6 +376,69 @@ export default function EventDetailPage() {
                   </Button>
                 </CardContent>
               </Card>
+
+              {wedding.eventType !== "other" ? (
+                <Card>
+                  <CardHeader>
+                    <CardTitle className="text-base">Taxe de séjour</CardTitle>
+                    <CardDescription>
+                      Suivi pour la déclaration mensuelle à l&apos;agglo. Les montants restent
+                      optionnels.
+                    </CardDescription>
+                  </CardHeader>
+                  <CardContent className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                    <div className="space-y-2">
+                      <label className="text-sm font-medium text-gray-800">Statut</label>
+                      <Select
+                        value={touristTaxStatus || "none"}
+                        onValueChange={(value) =>
+                          setTouristTaxStatus(value === "none" ? "" : (value as TouristTaxStatus))
+                        }
+                      >
+                        <SelectTrigger className="w-full bg-white">
+                          <SelectValue placeholder="Non suivi" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="none">Non suivi</SelectItem>
+                          <SelectItem value="unpaid">{TOURIST_TAX_STATUS_LABELS.unpaid}</SelectItem>
+                          <SelectItem value="paid">{TOURIST_TAX_STATUS_LABELS.paid}</SelectItem>
+                        </SelectContent>
+                      </Select>
+                    </div>
+                    <div className="space-y-2">
+                      <label className="text-sm font-medium text-gray-800">Montant (€)</label>
+                      <Input
+                        type="number"
+                        min="0"
+                        step="0.01"
+                        value={touristTaxAmount}
+                        onChange={(e) => setTouristTaxAmount(e.target.value)}
+                      />
+                    </div>
+                    <div className="space-y-2">
+                      <label className="text-sm font-medium text-gray-800">Date de versement</label>
+                      <Input
+                        type="date"
+                        value={touristTaxPaidDate}
+                        onChange={(e) => setTouristTaxPaidDate(e.target.value)}
+                        disabled={touristTaxStatus !== "paid"}
+                      />
+                    </div>
+                    <div className="md:col-span-3">
+                      <Button onClick={() => void handleSavePayments()} disabled={savingPayments}>
+                        {savingPayments ? (
+                          <>
+                            <Loader2 className="mr-2 h-4 w-4 animate-spin" aria-hidden />
+                            Enregistrement…
+                          </>
+                        ) : (
+                          "Enregistrer la taxe de séjour"
+                        )}
+                      </Button>
+                    </div>
+                  </CardContent>
+                </Card>
+              ) : null}
             </>
           ) : null}
         </div>

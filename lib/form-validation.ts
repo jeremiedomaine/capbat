@@ -24,12 +24,16 @@ export type NewEventFormInput = {
   spouse1LastName: string
   spouse2FirstName: string
   spouse2LastName: string
+  spouse1Phone?: string
+  spouse2Phone?: string
   contactName: string
   email: string
   phone: string
   eventDate: string
   depositAmount: string
   balanceAmount: string
+  depositAlreadyPaid?: boolean
+  depositPaidDate?: string
 }
 
 export function validateNewEventInput(input: NewEventFormInput): string | null {
@@ -49,8 +53,16 @@ export function validateNewEventInput(input: NewEventFormInput): string | null {
   }
 
   if (!isValidEmail(input.email)) return "Adresse e-mail invalide."
-  if (!input.phone.trim()) return "Indiquez un numéro de téléphone."
+  const hasPhone =
+    input.phone.trim() ||
+    (input.spouse1Phone ?? "").trim() ||
+    (input.spouse2Phone ?? "").trim()
+  if (!hasPhone) return "Indiquez au moins un numéro de téléphone."
   if (!input.eventDate.trim()) return "Choisissez une date."
+
+  if (input.depositAlreadyPaid && !(input.depositPaidDate ?? "").trim()) {
+    return "Indiquez la date de versement de l'acompte."
+  }
 
   const dep = parseEuroInput(input.depositAmount)
   const bal = parseEuroInput(input.balanceAmount)

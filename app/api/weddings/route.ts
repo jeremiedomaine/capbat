@@ -4,6 +4,8 @@ import { isWeddingEventType, parseEventType, requiresContactName } from "@/lib/e
 import { countActiveAutomationsByEventIds, seedDefaultAssignmentsForEvent } from "@/lib/event-automations-store"
 import { generateInvoicesForWeddings } from "@/lib/invoice-generate"
 import { buildIssuerFromSettings } from "@/lib/invoice-issuer"
+import { parsePaymentMethod } from "@/lib/payment-methods"
+import { parseTouristTaxStatus } from "@/lib/tourist-tax"
 import { getWorkspaceSettings } from "@/lib/workspace-settings-store"
 import { createWedding, listWeddings } from "@/lib/weddings-store"
 
@@ -35,6 +37,8 @@ export async function POST(request: Request) {
       spouse1LastName?: string
       spouse2FirstName?: string
       spouse2LastName?: string
+      spouse1Phone?: string
+      spouse2Phone?: string
       postalAddress?: string
       comments?: string
       couple?: string
@@ -46,15 +50,25 @@ export async function POST(request: Request) {
       balanceAmount?: string
       autopilot?: boolean
       generateInvoices?: boolean
+      depositAlreadyPaid?: boolean
+      depositPaidDate?: string
+      depositPaymentMethod?: string
+      touristTaxStatus?: string
+      touristTaxAmount?: string
+      touristTaxPaidDate?: string
     }
 
     const eventType = parseEventType(body.eventType)
+    const spouse1Phone = body.spouse1Phone?.trim() ?? ""
+    const spouse2Phone = body.spouse2Phone?.trim() ?? ""
+    const phone = body.phone?.trim() || spouse1Phone || spouse2Phone
+    const depositAlreadyPaid = body.depositAlreadyPaid === true
 
     if (
       !body.eventName?.trim() ||
       !body.couple?.trim() ||
       !body.email ||
-      !body.phone ||
+      !phone ||
       !body.eventDate ||
       !body.depositAmount ||
       !body.balanceAmount
@@ -64,6 +78,13 @@ export async function POST(request: Request) {
           error:
             "Les champs nom de l'événement, libellé tableau, email, téléphone, date, acompte et solde sont obligatoires.",
         },
+        { status: 400 }
+      )
+    }
+
+    if (depositAlreadyPaid && !body.depositPaidDate?.trim()) {
+      return NextResponse.json(
+        { error: "Indiquez la date de versement de l'acompte." },
         { status: 400 }
       )
     }
@@ -93,16 +114,24 @@ export async function POST(request: Request) {
       spouse1LastName: body.spouse1LastName ?? "",
       spouse2FirstName: body.spouse2FirstName ?? "",
       spouse2LastName: body.spouse2LastName ?? "",
+      spouse1Phone,
+      spouse2Phone,
       postalAddress: body.postalAddress ?? "",
       comments: body.comments ?? "",
       couple: body.couple,
       contactName: body.contactName ?? "",
       email: body.email,
-      phone: body.phone,
+      phone,
       eventDate: body.eventDate,
       depositAmount: body.depositAmount,
       balanceAmount: body.balanceAmount,
       autopilot: activateDefaults,
+      depositAlreadyPaid,
+      depositPaidDate: body.depositPaidDate,
+      depositPaymentMethod: parsePaymentMethod(body.depositPaymentMethod),
+      touristTaxStatus: parseTouristTaxStatus(body.touristTaxStatus),
+      touristTaxAmount: body.touristTaxAmount ?? "",
+      touristTaxPaidDate: body.touristTaxPaidDate ?? "",
     })
 
     await seedDefaultAssignmentsForEvent(created.id, created.eventType, activateDefaults)

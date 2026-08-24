@@ -1,6 +1,7 @@
 import type { EventType } from "@/lib/event-types"
 import { listAutomations, type Automation } from "@/lib/automations-store"
 import { getSupabaseAdmin } from "@/lib/supabase/admin"
+import { listWeddings } from "@/lib/weddings-store"
 
 const ASSIGNMENTS = process.env.SUPABASE_EVENT_AUTOMATION_ASSIGNMENTS_TABLE?.trim() || "event_automation_assignments"
 const SENT_LOG = process.env.SUPABASE_AUTOMATION_SENT_LOG_TABLE?.trim() || "automation_sent_log"
@@ -140,6 +141,51 @@ export async function markAutomationSent(eventId: number, automationId: string) 
     { onConflict: "event_id,automation_id" }
   )
   if (error) throw new Error(`Journal envoi impossible: ${error.message}`)
+}
+
+/**
+ * Active une automatisation sur les événements existants compatibles
+ * (même type, date à venir, sans écraser une désactivation manuelle déjà enregistrée).
+ */
+export async function assignAutomationToCompatibleEvents(automation: Automation): Promise<number> {
+  const weddings = await listWeddings()
+  const today = new Date().toISOString().slice(0, 10)
+
+  const candidates = weddings.filter((wedding) => {
+    if (!automation.eventTypes.includes(wedding.eventType)) return false
+    if (wedding.eventDate.slice(0, 10) < today) return false
+    return true
+  })
+
+  if (!candidates.length) return 0
+
+  const eventIds = candidates.map((w) => w.id)
+  const { data: existing, error: existingError } = await getSupabaseAdmin()
+    .from(ASSIGNMENTS)
+    .select("event_id")
+    .eq("automation_id", automation.id)
+    .in("event_id", eventIds)
+
+  if (existingError) {
+    throw new Error(`Lecture assignations impossible: ${existingError.message}`)
+  }
+
+  const alreadyAssigned = new Set((existing ?? []).map((row) => row.event_id as number))
+  const rows = candidates
+    .filter((wedding) => !alreadyAssigned.has(wedding.id))
+    .map((wedding) => ({
+      event_id: wedding.id,
+      automation_id: automation.id,
+      enabled: true,
+    }))
+
+  if (!rows.length) return 0
+
+  const { error } = await getSupabaseAdmin().from(ASSIGNMENTS).upsert(rows, {
+    onConflict: "event_id,automation_id",
+  })
+  if (error) throw new Error(`Activation sur événements existants impossible: ${error.message}`)
+  return rows.length
 }
 
 export function automationAppliesToEvent(automation: Automation, eventType: EventType) {

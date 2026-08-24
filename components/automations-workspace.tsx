@@ -45,6 +45,8 @@ const VARIABLES = [
   "{{contact}}",
   "{{acompte}}",
   "{{telephone}}",
+  "{{telephone_marie1}}",
+  "{{telephone_marie2}}",
   "{{j_moins}}",
   "{{j_plus}}",
 ] as const
@@ -85,6 +87,7 @@ export function AutomationsWorkspace() {
   const [deleteTarget, setDeleteTarget] = useState<Automation | null>(null)
   const [testRecipientEmail, setTestRecipientEmail] = useState("")
   const [isNew, setIsNew] = useState(false)
+  const [assignToExisting, setAssignToExisting] = useState(true)
   const [renamingId, setRenamingId] = useState<string | null>(null)
   const [renameValue, setRenameValue] = useState("")
   const messageRef = useRef<HTMLTextAreaElement | null>(null)
@@ -178,6 +181,7 @@ export function AutomationsWorkspace() {
     setSelectedId(null)
     setDraft(emptyDraft())
     setIsNew(true)
+    setAssignToExisting(true)
     setRenamingId(null)
   }
 
@@ -228,6 +232,7 @@ export function AutomationsWorkspace() {
         messageTemplate: draft.messageTemplate,
         eventTypes: draft.eventTypes,
         onlyIfBalancePending: draft.onlyIfBalancePending,
+        ...(isNew ? { assignToExisting } : {}),
       }
 
       const res = await fetch(isNew ? "/api/automations" : `/api/automations/${selectedId}`, {
@@ -235,10 +240,24 @@ export function AutomationsWorkspace() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(payload),
       })
-      const data = (await res.json()) as { automation?: Automation; error?: string }
+      const data = (await res.json()) as {
+        automation?: Automation
+        assignedCount?: number
+        error?: string
+      }
       if (!res.ok) throw new Error(data.error ?? "Enregistrement impossible.")
 
-      toast.success(isNew ? "Automatisation créée" : "Modifications enregistrées")
+      if (isNew && assignToExisting) {
+        const n = data.assignedCount ?? 0
+        toast.success("Automatisation créée", {
+          description:
+            n > 0
+              ? `Activée sur ${n} événement${n > 1 ? "s" : ""} à venir.`
+              : "Aucun événement à venir compatible à activer.",
+        })
+      } else {
+        toast.success(isNew ? "Automatisation créée" : "Modifications enregistrées")
+      }
       const newId = data.automation?.id ?? selectedId
       setIsNew(false)
       await load(newId)
@@ -438,6 +457,28 @@ export function AutomationsWorkspace() {
                     setDraft((d) => ({ ...d, dayOffset: Number.parseInt(e.target.value, 10) || 0 }))
                   }
                 />
+                <div className="flex flex-wrap gap-1.5">
+                  {(
+                    [
+                      { label: "1 mois avant", days: -30 },
+                      { label: "2 mois avant", days: -60 },
+                      { label: "2,5 mois avant", days: -76 },
+                      { label: "3 mois avant", days: -90 },
+                      { label: "3 jours après", days: 3 },
+                    ] as const
+                  ).map((chip) => (
+                    <Button
+                      key={chip.label}
+                      type="button"
+                      variant={draft.dayOffset === chip.days ? "default" : "outline"}
+                      size="sm"
+                      className="h-7 text-xs"
+                      onClick={() => setDraft((d) => ({ ...d, dayOffset: chip.days }))}
+                    >
+                      {chip.label}
+                    </Button>
+                  ))}
+                </div>
                 <p className="text-xs text-gray-500">
                   Négatif = avant · positif = après ({formatDayOffset(draft.dayOffset)})
                 </p>
@@ -468,6 +509,22 @@ export function AutomationsWorkspace() {
               />
               Uniquement si le solde est encore en attente
             </label>
+
+            {isNew ? (
+              <label className="flex items-start gap-2 text-sm">
+                <Checkbox
+                  checked={assignToExisting}
+                  onCheckedChange={(v) => setAssignToExisting(v === true)}
+                  className="mt-0.5"
+                />
+                <span>
+                  Activer sur les événements <strong>à venir</strong> compatibles
+                  <span className="block text-xs text-gray-500 font-normal mt-0.5">
+                    Évite de devoir ouvrir chaque fiche. Les événements passés ne sont pas touchés.
+                  </span>
+                </span>
+              </label>
+            ) : null}
 
             <div className="space-y-2">
               <Label>Objet de l&apos;e-mail</Label>

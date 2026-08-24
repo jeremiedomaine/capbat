@@ -11,7 +11,15 @@ import { Input } from "@/components/ui/input"
 import { Textarea } from "@/components/ui/textarea"
 import { Switch } from "@/components/ui/switch"
 import { Button } from "@/components/ui/button"
+import { Checkbox } from "@/components/ui/checkbox"
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group"
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select"
 import { validateNewEventInput } from "@/lib/form-validation"
 import {
   isEventType,
@@ -20,6 +28,15 @@ import {
   getEventDateLabel,
   getNewEventNamePlaceholder,
 } from "@/lib/event-types"
+import {
+  PAYMENT_METHOD_LABELS,
+  PAYMENT_METHOD_OPTIONS,
+  type PaymentMethod,
+} from "@/lib/payment-methods"
+import {
+  TOURIST_TAX_STATUS_LABELS,
+  type TouristTaxStatus,
+} from "@/lib/tourist-tax"
 import { buildDashboardCouple, buildPrimaryContactName } from "@/lib/wedding-display"
 
 export default function NewEventPage() {
@@ -30,6 +47,8 @@ export default function NewEventPage() {
   const [spouse1LastName, setSpouse1LastName] = useState("")
   const [spouse2FirstName, setSpouse2FirstName] = useState("")
   const [spouse2LastName, setSpouse2LastName] = useState("")
+  const [spouse1Phone, setSpouse1Phone] = useState("")
+  const [spouse2Phone, setSpouse2Phone] = useState("")
   const [contactName, setContactName] = useState("")
   const [postalAddress, setPostalAddress] = useState("")
   const [comments, setComments] = useState("")
@@ -38,6 +57,12 @@ export default function NewEventPage() {
   const [eventDate, setEventDate] = useState("")
   const [depositAmount, setDepositAmount] = useState("")
   const [balanceAmount, setBalanceAmount] = useState("")
+  const [depositAlreadyPaid, setDepositAlreadyPaid] = useState(false)
+  const [depositPaidDate, setDepositPaidDate] = useState("")
+  const [depositPaymentMethod, setDepositPaymentMethod] = useState<PaymentMethod | "">("")
+  const [touristTaxStatus, setTouristTaxStatus] = useState<TouristTaxStatus | "">("")
+  const [touristTaxAmount, setTouristTaxAmount] = useState("")
+  const [touristTaxPaidDate, setTouristTaxPaidDate] = useState("")
   const [autopilot, setAutopilot] = useState(true)
   const [generateInvoices, setGenerateInvoices] = useState(true)
   const [isSubmitting, setIsSubmitting] = useState(false)
@@ -54,12 +79,16 @@ export default function NewEventPage() {
       spouse1LastName,
       spouse2FirstName,
       spouse2LastName,
+      spouse1Phone,
+      spouse2Phone,
       contactName,
       email,
       phone,
       eventDate,
       depositAmount,
       balanceAmount,
+      depositAlreadyPaid,
+      depositPaidDate,
     })
     if (validationError) {
       setError(validationError)
@@ -93,17 +122,28 @@ export default function NewEventPage() {
           spouse1LastName: spouse1LastName.trim(),
           spouse2FirstName: spouse2FirstName.trim(),
           spouse2LastName: spouse2LastName.trim(),
+          spouse1Phone: spouse1Phone.trim(),
+          spouse2Phone: spouse2Phone.trim(),
           postalAddress: postalAddress.trim(),
           comments: comments.trim(),
           couple,
           contactName: resolvedContactName,
           email: email.trim(),
-          phone: phone.trim(),
+          phone: phone.trim() || spouse1Phone.trim() || spouse2Phone.trim(),
           eventDate,
           depositAmount,
           balanceAmount,
           autopilot,
           generateInvoices,
+          depositAlreadyPaid,
+          depositPaidDate: depositAlreadyPaid ? depositPaidDate : undefined,
+          depositPaymentMethod: depositAlreadyPaid ? depositPaymentMethod : undefined,
+          touristTaxStatus: eventType === "other" ? undefined : touristTaxStatus,
+          touristTaxAmount: eventType === "other" ? undefined : touristTaxAmount,
+          touristTaxPaidDate:
+            eventType !== "other" && touristTaxStatus === "paid"
+              ? touristTaxPaidDate
+              : undefined,
         }),
       })
 
@@ -213,6 +253,12 @@ export default function NewEventPage() {
                           placeholder="Nom"
                           required
                         />
+                        <Input
+                          type="tel"
+                          value={spouse1Phone}
+                          onChange={(e) => setSpouse1Phone(e.target.value)}
+                          placeholder="Téléphone (optionnel)"
+                        />
                       </div>
                       <div className="space-y-3">
                         <p className="text-xs font-medium uppercase tracking-wide text-gray-400">
@@ -229,6 +275,12 @@ export default function NewEventPage() {
                           onChange={(e) => setSpouse2LastName(e.target.value)}
                           placeholder="Nom"
                           required
+                        />
+                        <Input
+                          type="tel"
+                          value={spouse2Phone}
+                          onChange={(e) => setSpouse2Phone(e.target.value)}
+                          placeholder="Téléphone (optionnel)"
                         />
                       </div>
                     </div>
@@ -283,8 +335,14 @@ export default function NewEventPage() {
                       value={phone}
                       onChange={(e) => setPhone(e.target.value)}
                       placeholder="+33 6 12 34 56 78"
-                      required
+                      required={!isWeddingEventType(eventType)}
                     />
+                    {isWeddingEventType(eventType) ? (
+                      <p className="text-xs text-gray-500">
+                        Contact principal pour les e-mails. Les téléphones des mariés sont
+                        optionnels ci-dessus.
+                      </p>
+                    ) : null}
                   </div>
                   <div className="space-y-2">
                     <label className="text-sm font-medium text-gray-800">
@@ -320,6 +378,115 @@ export default function NewEventPage() {
                     />
                   </div>
                 </div>
+
+                <div className="space-y-4 rounded-lg border border-gray-100 p-4">
+                  <label className="flex items-start gap-2 text-sm">
+                    <Checkbox
+                      checked={depositAlreadyPaid}
+                      onCheckedChange={(v) => setDepositAlreadyPaid(v === true)}
+                      className="mt-0.5"
+                    />
+                    <span>
+                      Acompte déjà encaissé
+                      <span className="block text-xs text-gray-500 font-normal mt-0.5">
+                        Utile quand la fiche est créée après le versement.
+                      </span>
+                    </span>
+                  </label>
+                  {depositAlreadyPaid ? (
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                      <div className="space-y-2">
+                        <label className="text-sm font-medium text-gray-800">
+                          Date de versement
+                        </label>
+                        <Input
+                          type="date"
+                          value={depositPaidDate}
+                          onChange={(e) => setDepositPaidDate(e.target.value)}
+                          required
+                        />
+                      </div>
+                      <div className="space-y-2">
+                        <label className="text-sm font-medium text-gray-800">
+                          Moyen de paiement
+                        </label>
+                        <Select
+                          value={depositPaymentMethod || "none"}
+                          onValueChange={(value) =>
+                            setDepositPaymentMethod(
+                              value === "none" ? "" : (value as PaymentMethod)
+                            )
+                          }
+                        >
+                          <SelectTrigger className="w-full bg-white">
+                            <SelectValue placeholder="Choisir un moyen" />
+                          </SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="none">Non renseigné</SelectItem>
+                            {PAYMENT_METHOD_OPTIONS.map((method) => (
+                              <SelectItem key={method} value={method}>
+                                {PAYMENT_METHOD_LABELS[method]}
+                              </SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                      </div>
+                    </div>
+                  ) : null}
+                </div>
+
+                {eventType !== "other" ? (
+                  <div className="space-y-4 rounded-lg border border-gray-100 p-4">
+                    <p className="text-sm font-medium text-gray-900">Taxe de séjour</p>
+                    <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                      <div className="space-y-2">
+                        <label className="text-sm font-medium text-gray-800">Statut</label>
+                        <Select
+                          value={touristTaxStatus || "none"}
+                          onValueChange={(value) =>
+                            setTouristTaxStatus(
+                              value === "none" ? "" : (value as TouristTaxStatus)
+                            )
+                          }
+                        >
+                          <SelectTrigger className="w-full bg-white">
+                            <SelectValue placeholder="Non suivi" />
+                          </SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="none">Non suivi</SelectItem>
+                            <SelectItem value="unpaid">
+                              {TOURIST_TAX_STATUS_LABELS.unpaid}
+                            </SelectItem>
+                            <SelectItem value="paid">{TOURIST_TAX_STATUS_LABELS.paid}</SelectItem>
+                          </SelectContent>
+                        </Select>
+                      </div>
+                      <div className="space-y-2">
+                        <label className="text-sm font-medium text-gray-800">Montant (€)</label>
+                        <Input
+                          type="number"
+                          min="0"
+                          step="0.01"
+                          value={touristTaxAmount}
+                          onChange={(e) => setTouristTaxAmount(e.target.value)}
+                          placeholder="0"
+                        />
+                      </div>
+                      {touristTaxStatus === "paid" ? (
+                        <div className="space-y-2">
+                          <label className="text-sm font-medium text-gray-800">
+                            Date de versement
+                          </label>
+                          <Input
+                            type="date"
+                            value={touristTaxPaidDate}
+                            onChange={(e) => setTouristTaxPaidDate(e.target.value)}
+                          />
+                        </div>
+                      ) : null}
+                    </div>
+                  </div>
+                ) : null}
 
                 <div className="flex items-center justify-between rounded-lg border border-gray-100 p-4">
                   <div>

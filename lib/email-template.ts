@@ -29,6 +29,8 @@ export function buildAutomationVariableMap(
     contact: wedding.contactName,
     acompte: wedding.deposit.amount,
     telephone: wedding.phone,
+    telephone_marie1: wedding.spouse1Phone || wedding.phone,
+    telephone_marie2: wedding.spouse2Phone,
     j_moins: daysAhead !== undefined ? String(daysAhead) : "",
     j_plus: daysAfter !== undefined ? String(daysAfter) : "",
   }

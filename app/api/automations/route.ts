@@ -6,6 +6,7 @@ import {
   listAutomations,
   type AutomationInput,
 } from "@/lib/automations-store"
+import { assignAutomationToCompatibleEvents } from "@/lib/event-automations-store"
 import { isEventType, type EventType } from "@/lib/event-types"
 
 export async function GET() {
@@ -26,7 +27,9 @@ export async function POST(request: Request) {
   if (denied) return denied
 
   try {
-    const body = (await request.json()) as Partial<AutomationInput>
+    const body = (await request.json()) as Partial<AutomationInput> & {
+      assignToExisting?: boolean
+    }
     if (!body.name?.trim()) {
       return NextResponse.json({ error: "Le nom est obligatoire." }, { status: 400 })
     }
@@ -54,7 +57,12 @@ export async function POST(request: Request) {
       sortOrder: body.sortOrder ?? total + 1,
     })
 
-    return NextResponse.json({ automation: created }, { status: 201 })
+    let assignedCount = 0
+    if (body.assignToExisting === true) {
+      assignedCount = await assignAutomationToCompatibleEvents(created)
+    }
+
+    return NextResponse.json({ automation: created, assignedCount }, { status: 201 })
   } catch (error) {
     const message = error instanceof Error ? error.message : "Erreur interne"
     return NextResponse.json({ error: message }, { status: 500 })

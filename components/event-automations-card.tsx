@@ -154,7 +154,7 @@ function AutomationToggleGroup({
               </p>
               {row.sentAt ? (
                 <Badge variant="outline" className="mt-1 text-xs border-emerald-200 text-emerald-700">
-                  Envoyé le {row.sentAt}
+                  Remis au serveur le {row.sentAt}
                 </Badge>
               ) : null}
             </div>
