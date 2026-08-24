@@ -1,6 +1,6 @@
 import { getSupabaseAdmin } from "@/lib/supabase/admin"
 import { parseEventType, type EventType } from "@/lib/event-types"
-import { parsePaymentMethod } from "@/lib/payment-methods"
+import { parsePaymentMethod, type PaymentMethod } from "@/lib/payment-methods"
 import { type WeddingDetailFields } from "@/lib/wedding-details"
 import { type WeddingPaymentTracking } from "@/lib/wedding-payments"
 
@@ -102,7 +102,7 @@ export async function createWedding(input: NewWeddingInput): Promise<Wedding> {
     throw new Error(`Supabase create failed: ${error.message}`)
   }
 
-  return mapReservationToWedding(data)
+  return mapReservationToWedding(data, 0)
 }
 
 export async function updateWeddingPaymentStatus(
@@ -131,7 +131,7 @@ export async function updateWeddingPaymentStatus(
     throw new Error(`Supabase status update failed: ${error.message}`)
   }
   if (!data) return null
-  return mapReservationToWedding(data)
+  return mapReservationToWedding(data, 0)
 }
 
 export async function updateWeddingAutopilot(weddingId: number, autopilot: boolean) {
@@ -141,7 +141,7 @@ export async function updateWeddingAutopilot(weddingId: number, autopilot: boole
 
   if (isLegacyTable(tableName)) {
     const current = await fetchRowByFilter(tableName, rowFilter)
-    return current ? mapReservationToWedding(current) : null
+    return current ? mapReservationToWedding(current, 0) : null
   }
 
   const { data, error } = await db()
@@ -158,7 +158,7 @@ export async function updateWeddingAutopilot(weddingId: number, autopilot: boole
     throw new Error(`Supabase autopilot update failed: ${error.message}`)
   }
   if (!data) return null
-  return mapReservationToWedding(data)
+  return mapReservationToWedding(data, 0)
 }
 
 export async function updateWedding(weddingId: number, input: UpdateWeddingInput) {
@@ -211,7 +211,7 @@ export async function updateWedding(weddingId: number, input: UpdateWeddingInput
     throw new Error(`Supabase update failed: ${error.message}`)
   }
   if (!data) return null
-  return mapReservationToWedding(data)
+  return mapReservationToWedding(data, 0)
 }
 
 export async function deleteWedding(weddingId: number) {
@@ -256,7 +256,7 @@ export async function markPostEventReminderSent(weddingId: number, isoCalendarDa
     throw new Error(`Supabase post-event mark failed: ${error.message}`)
   }
   if (!data) return null
-  return mapReservationToWedding(data)
+  return mapReservationToWedding(data, 0)
 }
 
 /** Colonne unique `status` (legacy) ou chaînes FR / EN depuis Supabase. */
@@ -359,7 +359,7 @@ type ReservationWrite = {
   last_activity?: string
 }
 
-function mapReservationToWedding(row: ReservationRow, index: number): Wedding {
+function mapReservationToWedding(row: ReservationRow, index = 0): Wedding {
   const eventDate = row.event_date ?? row.eventDate ?? row.created_at ?? ""
   const contactName = row.contact_name ?? row.contactName ?? row.client_name ?? ""
   const email = row.email ?? row.client_email ?? ""
@@ -404,13 +404,13 @@ function normalizeStoredDate(raw: string | null | undefined): string {
   return raw.slice(0, 10)
 }
 
-function normalizeOptionalDate(raw: string | null): string | null {
+function normalizeOptionalDate(raw: string | null | undefined): string | null {
   const trimmed = raw?.trim() ?? ""
   if (!trimmed) return null
   return trimmed.slice(0, 10)
 }
 
-function normalizeOptionalPaymentMethod(raw: PaymentMethod | ""): string | null {
+function normalizeOptionalPaymentMethod(raw: PaymentMethod | "" | null): string | null {
   const method = parsePaymentMethod(raw)
   return method || null
 }

@@ -18,7 +18,7 @@ export function getSupabaseAdmin(): SupabaseClient {
       "SUPABASE_SERVICE_ROLE_KEY (Settings → API → service_role secret, pas la clé anon)"
     )
   }
-  if (missing.length) {
+  if (missing.length || !url || !key) {
     throw new Error(
       `Variables Vercel manquantes pour l’API : ${missing.join(" · ")}. Coche bien l’environnement **Production** pour chaque variable, puis redeploie.`
     )

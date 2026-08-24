@@ -62,14 +62,21 @@ export async function PATCH(
     }
 
     const updated = await updateWedding(weddingId, {
-      ...body,
       eventType: body.eventType ? parseEventType(body.eventType) : undefined,
-      depositPaidDate: body.depositPaidDate,
+      couple: body.couple,
+      contactName: body.contactName,
+      email: body.email,
+      phone: body.phone,
+      eventDate: body.eventDate,
+      depositAmount: body.depositAmount,
+      balanceAmount: body.balanceAmount,
+      autopilot: body.autopilot,
+      depositPaidDate: body.depositPaidDate === undefined ? undefined : body.depositPaidDate ?? "",
       depositPaymentMethod:
         body.depositPaymentMethod === undefined
           ? undefined
           : parsePaymentMethod(body.depositPaymentMethod),
-      balancePaidDate: body.balancePaidDate,
+      balancePaidDate: body.balancePaidDate === undefined ? undefined : body.balancePaidDate ?? "",
       balancePaymentMethod:
         body.balancePaymentMethod === undefined
           ? undefined

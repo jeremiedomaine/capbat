@@ -1,4 +1,4 @@
-import { createServerClient } from "@supabase/ssr"
+import { createServerClient, type CookieOptions } from "@supabase/ssr"
 import { cookies } from "next/headers"
 import { getSupabasePublicKey, getSupabasePublicUrl } from "@/lib/supabase/env-public"
 
@@ -13,7 +13,7 @@ export async function createClient() {
   return createServerClient(url, key,
     {
       global: {
-        fetch: (input, init) => {
+        fetch: (input: RequestInfo | URL, init?: RequestInit) => {
           const controller = new AbortController()
           const timer = setTimeout(() => controller.abort(), 8000)
           return fetch(input, { ...init, signal: controller.signal }).finally(() => {
@@ -25,7 +25,13 @@ export async function createClient() {
         getAll() {
           return cookieStore.getAll()
         },
-        setAll(cookiesToSet) {
+        setAll(
+          cookiesToSet: {
+            name: string
+            value: string
+            options: CookieOptions
+          }[]
+        ) {
           try {
             cookiesToSet.forEach(({ name, value, options }) =>
               cookieStore.set(name, value, options)

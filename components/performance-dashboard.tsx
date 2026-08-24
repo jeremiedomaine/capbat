@@ -387,7 +387,8 @@ export function PerformanceDashboard() {
                       formatter={(value, name) => (
                         <div className="flex w-full min-w-[10rem] justify-between gap-4 tabular-nums">
                           <span className="text-muted-foreground">
-                            {statusChartConfig[String(name)]?.label ?? String(name)}
+                            {statusChartConfig[String(name) as keyof typeof statusChartConfig]?.label ??
+                              String(name)}
                           </span>
                           <span className="font-medium">
                             {formatEuro(typeof value === "number" ? value : Number(value))}
