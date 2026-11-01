@@ -1,5 +1,6 @@
 import { createClient, type SupabaseClient } from "@supabase/supabase-js"
 import { getSupabaseUrlForServer } from "@/lib/supabase/env-public"
+import { createReadOnlyFetch, isReadOnlyMode } from "@/lib/read-only"
 
 let cached: SupabaseClient | null = null
 
@@ -25,6 +26,7 @@ export function getSupabaseAdmin(): SupabaseClient {
   }
   cached = createClient(url, key, {
     auth: { persistSession: false, autoRefreshToken: false },
+    ...(isReadOnlyMode() ? { global: { fetch: createReadOnlyFetch() } } : {}),
   })
   return cached
 }
