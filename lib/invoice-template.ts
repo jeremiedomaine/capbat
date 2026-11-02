@@ -13,7 +13,9 @@ export type InvoiceCatalogItem = {
 }
 
 export type InvoiceTemplate = {
+  /** @deprecated Le design est figé ; conservé pour les anciens enregistrements. */
   primaryColor: string
+  /** @deprecated Remplacé par thankYouMessage. */
   footerText: string
   legalNotice: string
   defaultDueDays: number
@@ -23,6 +25,12 @@ export type InvoiceTemplate = {
   fullLabel: string
   catalog: InvoiceCatalogItem[]
   autoGenerateOnEventCreate: boolean
+  tagline: string
+  thankYouMessage: string
+  signature: string
+  bankIban: string
+  bankBic: string
+  bankHolder: string
 }
 
 export type InvoiceTemplateContext = {
@@ -47,6 +55,12 @@ export const DEFAULT_INVOICE_TEMPLATE: InvoiceTemplate = {
     { id: "discount", label: "Remise commerciale", unitPrice: -200, kind: "discount" },
   ],
   autoGenerateOnEventCreate: true,
+  tagline: "Réception & hébergement",
+  thankYouMessage: "Merci de nous confier ce jour si précieux.",
+  signature: "",
+  bankIban: "",
+  bankBic: "",
+  bankHolder: "",
 }
 
 export function mergeInvoiceTemplate(

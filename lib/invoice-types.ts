@@ -17,6 +17,7 @@ export type InvoiceLineItemKind = "standard" | "extra" | "discount"
 
 export type InvoiceLineItem = {
   label: string
+  description?: string
   quantity: number
   unitPrice: number
   kind?: InvoiceLineItemKind
@@ -67,6 +68,7 @@ export type UpdateInvoiceInput = {
   notes?: string
   status?: InvoiceStatus
   client?: InvoiceParty
+  issuer?: InvoiceParty
   locked?: boolean
 }
 

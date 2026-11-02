@@ -153,6 +153,7 @@ export async function updateInvoice(
     notes: input.notes !== undefined ? input.notes.trim() || undefined : current.notes,
     status: input.status ?? current.status,
     client: input.client ?? current.client,
+    issuer: input.issuer ?? current.issuer,
     locked: input.locked ?? current.locked,
     updatedAt: new Date().toISOString(),
   }
@@ -169,6 +170,7 @@ export async function updateInvoice(
         notes: updated.notes ?? null,
         status: updated.status,
         client: updated.client,
+        issuer: updated.issuer,
         locked: updated.locked,
         updated_at: updated.updatedAt,
       })

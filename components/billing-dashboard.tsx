@@ -1,20 +1,13 @@
 "use client"
 
 import Link from "next/link"
+import { useRouter } from "next/navigation"
 import { useCallback, useEffect, useMemo, useState } from "react"
-import {
-  Download,
-  FileText,
-  Loader2,
-  Lock,
-  Pencil,
-  Plus,
-  Sparkles,
-  Trash2,
-} from "lucide-react"
+import { Download, FileText, Loader2, Lock, Plus, Search, Settings2, Sparkles, Trash2 } from "lucide-react"
 import { toast } from "sonner"
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
+import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
+import { Card, CardContent } from "@/components/ui/card"
 import { Input } from "@/components/ui/input"
 import {
   Table,
@@ -49,8 +42,9 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog"
-import type { Invoice, InvoiceParty, InvoiceType } from "@/lib/invoice-types"
-import { INVOICE_TYPE_LABELS } from "@/lib/invoice-types"
+import { InvoiceSettingsSheet } from "@/components/invoice-settings-sheet"
+import type { Invoice, InvoiceStatus, InvoiceType } from "@/lib/invoice-types"
+import { INVOICE_STATUS_LABELS } from "@/lib/invoice-types"
 import { buildLineItemsFromTemplate } from "@/lib/invoice-template"
 import {
   addCalendarDays,
@@ -59,14 +53,8 @@ import {
   parseEuroAmount,
   todayIsoDate,
 } from "@/lib/invoice-utils"
-import { type BillingProfile } from "@/lib/billing-local-storage"
-import { getStoredManagerName } from "@/lib/profile-local-storage"
-import {
-  loadWorkspaceSettings,
-  persistBillingProfile,
-} from "@/lib/workspace-settings-client"
-import { DEFAULT_WORKSPACE_SETTINGS } from "@/lib/workspace-settings"
-import { InvoiceTemplateCard } from "@/components/invoice-template-card"
+import { DEFAULT_WORKSPACE_SETTINGS, type WorkspaceSettings } from "@/lib/workspace-settings"
+import { loadWorkspaceSettings } from "@/lib/workspace-settings-client"
 
 type WeddingOption = {
   id: number
@@ -74,6 +62,7 @@ type WeddingOption = {
   contactName: string
   email: string
   phone: string
+  postalAddress?: string
   eventDate: string
   eventType: "wedding" | "gite" | "other"
   eventName: string
@@ -81,25 +70,33 @@ type WeddingOption = {
   balance: { amount: string }
 }
 
+const TYPE_SHORT_LABELS: Record<InvoiceType, string> = {
+  deposit: "Acompte",
+  balance: "Solde",
+  full: "Globale",
+}
+
+const STATUS_BADGE: Record<InvoiceStatus, string> = {
+  draft: "bg-gray-100 text-gray-700 border-gray-200",
+  sent: "bg-blue-50 text-blue-700 border-blue-200",
+  paid: "bg-emerald-50 text-emerald-700 border-emerald-200",
+  cancelled: "bg-red-50 text-red-700 border-red-200",
+}
+
 export function BillingDashboard() {
+  const router = useRouter()
   const [invoices, setInvoices] = useState<Invoice[]>([])
   const [weddings, setWeddings] = useState<WeddingOption[]>([])
+  const [settings, setSettings] = useState<WorkspaceSettings>(DEFAULT_WORKSPACE_SETTINGS)
   const [loading, setLoading] = useState(true)
   const [generating, setGenerating] = useState(false)
+  const [settingsOpen, setSettingsOpen] = useState(false)
   const [createOpen, setCreateOpen] = useState(false)
   const [createSubmitting, setCreateSubmitting] = useState(false)
   const [deleteTarget, setDeleteTarget] = useState<Invoice | null>(null)
   const [pendingId, setPendingId] = useState<string | null>(null)
-
-  const [billingProfile, setBillingProfile] = useState<BillingProfile>(
-    DEFAULT_WORKSPACE_SETTINGS.billing
-  )
-  const [invoiceTemplate, setInvoiceTemplate] = useState(DEFAULT_WORKSPACE_SETTINGS.invoiceTemplate)
-  const [companyName, setCompanyName] = useState(DEFAULT_WORKSPACE_SETTINGS.companyName)
-  const [contactEmail, setContactEmail] = useState(DEFAULT_WORKSPACE_SETTINGS.contactEmail)
-  const [settingsLoading, setSettingsLoading] = useState(true)
-  const [billingSaving, setBillingSaving] = useState(false)
-
+  const [query, setQuery] = useState("")
+  const [statusFilter, setStatusFilter] = useState<InvoiceStatus | "all">("all")
   const [newWeddingId, setNewWeddingId] = useState("")
   const [newType, setNewType] = useState<InvoiceType>("deposit")
 
@@ -111,16 +108,12 @@ export function BillingDashboard() {
       ])
       const invPayload = (await invRes.json()) as { invoices?: Invoice[]; error?: string }
       const wedPayload = (await wedRes.json()) as { weddings?: WeddingOption[] }
-
       if (!invRes.ok) {
-        toast.error("Impossible de charger les factures", {
-          description: invPayload.error?.slice(0, 160),
-        })
+        toast.error("Impossible de charger les factures", { description: invPayload.error?.slice(0, 160) })
         setInvoices([])
       } else {
         setInvoices(invPayload.invoices ?? [])
       }
-
       setWeddings(wedRes.ok ? wedPayload.weddings ?? [] : [])
     } catch {
       toast.error("Réseau indisponible", { description: "Rechargez la page." })
@@ -131,62 +124,38 @@ export function BillingDashboard() {
 
   useEffect(() => {
     refresh()
+    loadWorkspaceSettings().then(setSettings)
   }, [refresh])
 
-  useEffect(() => {
-    loadWorkspaceSettings()
-      .then((settings) => {
-        setBillingProfile(settings.billing)
-        setCompanyName(settings.companyName)
-        setContactEmail(settings.contactEmail)
-        setInvoiceTemplate(settings.invoiceTemplate)
-      })
-      .finally(() => setSettingsLoading(false))
-  }, [])
+  const filtered = useMemo(() => {
+    const needle = query.trim().toLowerCase()
+    return invoices.filter((invoice) => {
+      if (statusFilter !== "all" && invoice.status !== statusFilter) return false
+      if (!needle) return true
+      return (
+        invoice.number.toLowerCase().includes(needle) ||
+        invoice.couple.toLowerCase().includes(needle) ||
+        invoice.client.name.toLowerCase().includes(needle)
+      )
+    })
+  }, [invoices, query, statusFilter])
 
-  const issuerParty = useMemo((): InvoiceParty => {
+  const totals = useMemo(() => {
+    const active = invoices.filter((invoice) => invoice.status !== "cancelled")
     return {
-      name: companyName,
-      contactName: getStoredManagerName()?.trim() || undefined,
-      email: contactEmail,
-      phone: billingProfile.phone || undefined,
-      addressLine: billingProfile.addressLine,
-      postalCode: billingProfile.postalCode,
-      city: billingProfile.city,
-      siret: billingProfile.siret || undefined,
-      vatNumber: billingProfile.vatNumber || undefined,
+      toCollect: active.filter((i) => i.status !== "paid").reduce((sum, i) => sum + i.amountTtc, 0),
+      paid: active.filter((i) => i.status === "paid").reduce((sum, i) => sum + i.amountTtc, 0),
+      drafts: active.filter((i) => i.status === "draft").length,
     }
-  }, [billingProfile, companyName, contactEmail])
-
-  const saveBillingProfile = async () => {
-    setBillingSaving(true)
-    try {
-      await persistBillingProfile(billingProfile)
-      toast.success("Coordonnées de facturation enregistrées", {
-        description: "Conservées après chaque mise à jour du site.",
-      })
-    } catch (e) {
-      toast.error("Enregistrement impossible", {
-        description: e instanceof Error ? e.message : "Réessayez dans un instant.",
-      })
-    } finally {
-      setBillingSaving(false)
-    }
-  }
+  }, [invoices])
 
   const downloadPdf = async (invoice: Invoice) => {
     setPendingId(invoice.id)
     try {
-      const response = await fetch(`/api/invoices/${invoice.id}/pdf`, {
-        credentials: "same-origin",
-      })
-      const contentType = response.headers.get("content-type") ?? ""
-      if (!response.ok) {
+      const response = await fetch(`/api/invoices/${invoice.id}/pdf`, { credentials: "same-origin" })
+      if (!response.ok || !(response.headers.get("content-type") ?? "").includes("pdf")) {
         const payload = (await response.json().catch(() => ({}))) as { error?: string }
         throw new Error(payload.error ?? "Téléchargement impossible.")
-      }
-      if (!contentType.includes("pdf")) {
-        throw new Error("Le serveur n'a pas renvoyé un PDF valide.")
       }
       const blob = await response.blob()
       const url = URL.createObjectURL(blob)
@@ -195,11 +164,8 @@ export function BillingDashboard() {
       anchor.download = `${invoice.number}.pdf`
       anchor.click()
       URL.revokeObjectURL(url)
-      toast.success("PDF téléchargé", { description: invoice.number })
     } catch (e) {
-      toast.error("Échec du PDF", {
-        description: e instanceof Error ? e.message : "Réessayez.",
-      })
+      toast.error("Échec du PDF", { description: e instanceof Error ? e.message : "Réessayez." })
     } finally {
       setPendingId(null)
     }
@@ -212,12 +178,7 @@ export function BillingDashboard() {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         credentials: "same-origin",
-        body: JSON.stringify({
-          types: ["deposit", "balance"],
-          issuer: issuerParty,
-          dueInDays: invoiceTemplate.defaultDueDays,
-          vatRate: invoiceTemplate.defaultVatRate,
-        }),
+        body: JSON.stringify({ types: ["deposit", "balance"] }),
       })
       const payload = (await response.json()) as {
         created?: Invoice[]
@@ -225,46 +186,17 @@ export function BillingDashboard() {
         error?: string
       }
       if (!response.ok) throw new Error(payload.error ?? "Génération impossible.")
-
-      const created = payload.created ?? []
-      if (created.length) {
-        setInvoices((prev) => {
-          const ids = new Set(prev.map((row) => row.id))
-          const merged = [...created.filter((row) => !ids.has(row.id)), ...prev]
-          return merged.sort((a, b) => b.issuedAt.localeCompare(a.issuedAt))
-        })
-      }
-
       await refresh()
-
-      const createdCount = created.length
-      const skippedCount = payload.skipped?.length ?? 0
-      const firstSkip = payload.skipped?.[0]
-
+      const createdCount = payload.created?.length ?? 0
       if (createdCount === 0) {
-        toast.warning("Aucune nouvelle facture", {
-          description:
-            firstSkip?.reason ??
-            (skippedCount > 0
-              ? `${skippedCount} ligne(s) ignorée(s) (montant nul ou déjà facturé).`
-              : "Vérifiez que vos événements ont un acompte et un solde renseignés."),
+        toast.message("Rien à créer", {
+          description: "Chaque événement avec un acompte et un solde a déjà ses factures.",
         })
         return
       }
-
-      toast.success(
-        `${createdCount} facture${createdCount > 1 ? "s" : ""} créée${createdCount > 1 ? "s" : ""}`,
-        {
-          description:
-            skippedCount > 0
-              ? `${skippedCount} ignorée(s) : ${firstSkip?.reason ?? "déjà facturé ou montant nul"}.`
-              : "Téléchargez les PDF depuis la liste.",
-        }
-      )
+      toast.success(`${createdCount} facture${createdCount > 1 ? "s" : ""} créée${createdCount > 1 ? "s" : ""}`)
     } catch (e) {
-      toast.error("Génération automatique échouée", {
-        description: e instanceof Error ? e.message : "Réessayez.",
-      })
+      toast.error("Création impossible", { description: e instanceof Error ? e.message : "Réessayez." })
     } finally {
       setGenerating(false)
     }
@@ -276,9 +208,7 @@ export function BillingDashboard() {
       toast.error("Sélectionnez un événement.")
       return
     }
-
-    const depositAmount = parseEuroAmount(wedding.deposit.amount)
-    const balanceAmount = parseEuroAmount(wedding.balance.amount)
+    const template = settings.invoiceTemplate
     const lineItems = buildLineItemsFromTemplate(
       newType,
       {
@@ -287,9 +217,9 @@ export function BillingDashboard() {
         eventType: wedding.eventType,
         eventName: wedding.eventName,
       },
-      invoiceTemplate,
-      depositAmount,
-      balanceAmount
+      template,
+      parseEuroAmount(wedding.deposit.amount),
+      parseEuroAmount(wedding.balance.amount)
     )
     const amountTtc = lineItemsTotal(lineItems)
     if (amountTtc <= 0) {
@@ -310,30 +240,25 @@ export function BillingDashboard() {
           type: newType,
           amountTtc,
           lineItems,
-          issuer: issuerParty,
           client: {
             name: wedding.couple,
             contactName: wedding.contactName,
             email: wedding.email,
             phone: wedding.phone,
+            addressLine: wedding.postalAddress || undefined,
           },
           issuedAt,
-          dueAt: addCalendarDays(issuedAt, invoiceTemplate.defaultDueDays),
-          vatRate: invoiceTemplate.defaultVatRate,
+          dueAt: addCalendarDays(issuedAt, template.defaultDueDays),
+          vatRate: template.defaultVatRate,
           status: "draft",
         }),
       })
       const payload = (await response.json()) as { invoice?: Invoice; error?: string }
-      if (!response.ok) throw new Error(payload.error ?? "Création impossible.")
-      if (payload.invoice) {
-        setInvoices((prev) => [payload.invoice!, ...prev])
-      }
+      if (!response.ok || !payload.invoice) throw new Error(payload.error ?? "Création impossible.")
       setCreateOpen(false)
-      toast.success("Facture créée", { description: payload.invoice?.number })
+      router.push(`/facturation/${payload.invoice.id}`)
     } catch (e) {
-      toast.error("Création impossible", {
-        description: e instanceof Error ? e.message : "Réessayez.",
-      })
+      toast.error("Création impossible", { description: e instanceof Error ? e.message : "Réessayez." })
     } finally {
       setCreateSubmitting(false)
     }
@@ -354,9 +279,7 @@ export function BillingDashboard() {
       setInvoices((prev) => prev.filter((row) => row.id !== deleteTarget.id))
       toast.success("Facture supprimée")
     } catch (e) {
-      toast.error("Suppression impossible", {
-        description: e instanceof Error ? e.message : "Réessayez.",
-      })
+      toast.error("Suppression impossible", { description: e instanceof Error ? e.message : "Réessayez." })
     } finally {
       setPendingId(null)
       setDeleteTarget(null)
@@ -365,159 +288,114 @@ export function BillingDashboard() {
 
   return (
     <div className="space-y-6">
-      <InvoiceTemplateCard />
+      <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+        <Kpi label="À encaisser" value={formatEuro(totals.toCollect)} />
+        <Kpi label="Encaissé" value={formatEuro(totals.paid)} />
+        <Kpi label="Brouillons" value={String(totals.drafts)} />
+      </div>
 
       <Card className="bg-white border-gray-100 shadow-sm">
-        <CardHeader>
-          <CardTitle>Coordonnées de facturation</CardTitle>
-          <CardDescription>
-            Ces informations apparaissent sur chaque PDF (en-tête émetteur).
-          </CardDescription>
-        </CardHeader>
-        <CardContent className="grid grid-cols-1 md:grid-cols-2 gap-4">
-          <Field label="Adresse">
-            <Input
-              value={billingProfile.addressLine}
-              onChange={(e) =>
-                setBillingProfile((p) => ({ ...p, addressLine: e.target.value }))
-              }
-            />
-          </Field>
-          <div className="grid grid-cols-2 gap-3">
-            <Field label="Code postal">
-              <Input
-                value={billingProfile.postalCode}
-                onChange={(e) =>
-                  setBillingProfile((p) => ({ ...p, postalCode: e.target.value }))
-                }
-              />
-            </Field>
-            <Field label="Ville">
-              <Input
-                value={billingProfile.city}
-                onChange={(e) => setBillingProfile((p) => ({ ...p, city: e.target.value }))}
-              />
-            </Field>
+        <CardContent className="space-y-4 pt-6">
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <div className="flex flex-1 flex-wrap items-center gap-2 min-w-[260px]">
+              <div className="relative flex-1 max-w-xs">
+                <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-gray-400" />
+                <Input
+                  value={query}
+                  onChange={(e) => setQuery(e.target.value)}
+                  placeholder="Rechercher un couple, un n°…"
+                  className="pl-8"
+                />
+              </div>
+              <Select value={statusFilter} onValueChange={(v) => setStatusFilter(v as InvoiceStatus | "all")}>
+                <SelectTrigger className="w-[150px]">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">Tous les statuts</SelectItem>
+                  {Object.entries(INVOICE_STATUS_LABELS).map(([value, label]) => (
+                    <SelectItem key={value} value={value}>
+                      {label}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="flex flex-wrap gap-2">
+              <Button type="button" variant="ghost" onClick={() => setSettingsOpen(true)}>
+                <Settings2 className="w-4 h-4 mr-2" />
+                Réglages
+              </Button>
+              <Button type="button" variant="outline" onClick={handleAutoGenerate} disabled={generating || loading}>
+                {generating ? (
+                  <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                ) : (
+                  <Sparkles className="w-4 h-4 mr-2" />
+                )}
+                Créer les factures manquantes
+              </Button>
+              <Button type="button" onClick={() => setCreateOpen(true)} disabled={loading}>
+                <Plus className="w-4 h-4 mr-2" />
+                Nouvelle facture
+              </Button>
+            </div>
           </div>
-          <Field label="SIRET">
-            <Input
-              value={billingProfile.siret}
-              onChange={(e) => setBillingProfile((p) => ({ ...p, siret: e.target.value }))}
-            />
-          </Field>
-          <Field label="N° TVA intracommunautaire">
-            <Input
-              value={billingProfile.vatNumber}
-              onChange={(e) =>
-                setBillingProfile((p) => ({ ...p, vatNumber: e.target.value }))
-              }
-            />
-          </Field>
-          <Field label="Téléphone facturation">
-            <Input
-              value={billingProfile.phone}
-              onChange={(e) => setBillingProfile((p) => ({ ...p, phone: e.target.value }))}
-            />
-          </Field>
-          <div className="md:col-span-2 flex items-center gap-3">
-            <Button
-              type="button"
-              variant="outline"
-              onClick={saveBillingProfile}
-              disabled={settingsLoading || billingSaving}
-            >
-              {billingSaving && <Loader2 className="w-4 h-4 mr-2 animate-spin" />}
-              Enregistrer les coordonnées
-            </Button>
-            <p className="text-xs text-gray-500">
-              Nom et e-mail : Paramètres ({companyName})
-            </p>
-          </div>
-        </CardContent>
-      </Card>
 
-      <Card className="bg-white border-gray-100 shadow-sm">
-        <CardHeader className="flex flex-row items-start justify-between gap-4 space-y-0">
-          <div>
-            <CardTitle className="flex items-center gap-2">
-              <FileText className="w-5 h-5 text-blue-600" />
-              Factures
-            </CardTitle>
-            <CardDescription>
-              Générez automatiquement les factures d&apos;acompte et de solde, puis téléchargez le PDF.
-            </CardDescription>
-          </div>
-          <div className="flex flex-wrap gap-2 shrink-0">
-            <Button
-              type="button"
-              variant="outline"
-              onClick={handleAutoGenerate}
-              disabled={generating || loading}
-            >
-              {generating ? (
-                <Loader2 className="w-4 h-4 mr-2 animate-spin" />
-              ) : (
-                <Sparkles className="w-4 h-4 mr-2" />
-              )}
-              Générer automatiquement
-            </Button>
-            <Button type="button" onClick={() => setCreateOpen(true)} disabled={loading}>
-              <Plus className="w-4 h-4 mr-2" />
-              Nouvelle facture
-            </Button>
-          </div>
-        </CardHeader>
-        <CardContent>
           {loading ? (
             <div className="flex items-center justify-center py-16 text-gray-500">
               <Loader2 className="w-6 h-6 animate-spin mr-2" />
               Chargement…
             </div>
-          ) : invoices.length === 0 ? (
-            <div className="text-center py-16 text-gray-500 text-sm">
-              Aucune facture pour le moment. Utilisez &laquo;&nbsp;Générer automatiquement&nbsp;&raquo; pour
-              créer les factures à partir de vos événements.
+          ) : filtered.length === 0 ? (
+            <div className="flex flex-col items-center gap-2 py-16 text-center text-sm text-gray-500">
+              <FileText className="h-8 w-8 text-gray-300" />
+              {invoices.length === 0
+                ? "Aucune facture. « Créer les factures manquantes » prépare l'acompte et le solde de chaque événement."
+                : "Aucune facture ne correspond à la recherche."}
             </div>
           ) : (
             <Table>
               <TableHeader>
                 <TableRow>
                   <TableHead>N°</TableHead>
-                  <TableHead>Couple</TableHead>
+                  <TableHead>Mariés</TableHead>
                   <TableHead>Type</TableHead>
-                  <TableHead>Émission</TableHead>
-                  <TableHead>Montant TTC</TableHead>
-                  <TableHead className="text-right">Actions</TableHead>
+                  <TableHead>Échéance</TableHead>
+                  <TableHead className="text-right">Montant</TableHead>
+                  <TableHead>Statut</TableHead>
+                  <TableHead className="text-right" />
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {invoices.map((invoice) => (
-                  <TableRow key={invoice.id}>
-                    <TableCell className="font-medium">{invoice.number}</TableCell>
+                {filtered.map((invoice) => (
+                  <TableRow
+                    key={invoice.id}
+                    className="cursor-pointer"
+                    onClick={() => router.push(`/facturation/${invoice.id}`)}
+                  >
+                    <TableCell className="font-medium">
+                      <Link href={`/facturation/${invoice.id}`} onClick={(e) => e.stopPropagation()}>
+                        {invoice.number}
+                      </Link>
+                    </TableCell>
                     <TableCell>{invoice.couple}</TableCell>
-                    <TableCell className="text-gray-600 text-sm">
-                      {INVOICE_TYPE_LABELS[invoice.type]}
+                    <TableCell className="text-gray-600 text-sm">{TYPE_SHORT_LABELS[invoice.type]}</TableCell>
+                    <TableCell className="text-gray-600 text-sm">{formatFrenchShort(invoice.dueAt)}</TableCell>
+                    <TableCell className="text-right font-medium">{formatEuro(invoice.amountTtc)}</TableCell>
+                    <TableCell>
+                      <div className="flex items-center gap-1.5">
+                        <Badge variant="outline" className={STATUS_BADGE[invoice.status]}>
+                          {INVOICE_STATUS_LABELS[invoice.status]}
+                        </Badge>
+                        {invoice.locked ? <Lock className="w-3.5 h-3.5 text-amber-600" aria-label="Verrouillée" /> : null}
+                      </div>
                     </TableCell>
-                    <TableCell className="text-gray-600 text-sm">
-                      {formatFrenchShort(invoice.issuedAt)}
-                    </TableCell>
-                    <TableCell>{formatEuro(invoice.amountTtc)}</TableCell>
                     <TableCell className="text-right">
-                      <div className="flex justify-end gap-1 items-center">
-                        {invoice.locked ? (
-                          <span title="Verrouillée">
-                            <Lock className="w-3.5 h-3.5 text-amber-600 mr-1" />
-                          </span>
-                        ) : null}
-                        <Button type="button" size="sm" variant="outline" asChild>
-                          <Link href={`/facturation/${invoice.id}`} title="Modifier">
-                            <Pencil className="w-3.5 h-3.5" />
-                          </Link>
-                        </Button>
+                      <div className="flex justify-end gap-1" onClick={(e) => e.stopPropagation()}>
                         <Button
                           type="button"
                           size="sm"
-                          variant="outline"
+                          variant="ghost"
                           disabled={pendingId === invoice.id}
                           onClick={() => downloadPdf(invoice)}
                           title="Télécharger le PDF"
@@ -533,7 +411,7 @@ export function BillingDashboard() {
                           size="sm"
                           variant="ghost"
                           className="text-red-600 hover:text-red-700"
-                          disabled={pendingId === invoice.id}
+                          disabled={pendingId === invoice.id || invoice.locked}
                           onClick={() => setDeleteTarget(invoice)}
                           title="Supprimer"
                         >
@@ -549,16 +427,24 @@ export function BillingDashboard() {
         </CardContent>
       </Card>
 
+      <InvoiceSettingsSheet
+        open={settingsOpen}
+        onOpenChange={setSettingsOpen}
+        settings={settings}
+        onSaved={setSettings}
+      />
+
       <Dialog open={createOpen} onOpenChange={setCreateOpen}>
         <DialogContent>
           <DialogHeader>
             <DialogTitle>Nouvelle facture</DialogTitle>
             <DialogDescription>
-              Créez une facture manuelle pour un événement existant.
+              Choisissez l&apos;événement : la facture est pré-remplie, vous ajoutez ensuite les extras.
             </DialogDescription>
           </DialogHeader>
           <div className="space-y-4 py-2">
-            <Field label="Événement">
+            <div className="space-y-2">
+              <label className="text-sm font-medium text-gray-800">Événement</label>
               <Select value={newWeddingId} onValueChange={setNewWeddingId}>
                 <SelectTrigger>
                   <SelectValue placeholder="Choisir un mariage" />
@@ -571,8 +457,9 @@ export function BillingDashboard() {
                   ))}
                 </SelectContent>
               </Select>
-            </Field>
-            <Field label="Type de facture">
+            </div>
+            <div className="space-y-2">
+              <label className="text-sm font-medium text-gray-800">Type de facture</label>
               <Select value={newType} onValueChange={(v) => setNewType(v as InvoiceType)}>
                 <SelectTrigger>
                   <SelectValue />
@@ -583,19 +470,15 @@ export function BillingDashboard() {
                   <SelectItem value="full">Globale</SelectItem>
                 </SelectContent>
               </Select>
-            </Field>
+            </div>
           </div>
           <DialogFooter>
             <Button type="button" variant="outline" onClick={() => setCreateOpen(false)}>
               Annuler
             </Button>
-            <Button
-              type="button"
-              onClick={handleCreateInvoice}
-              disabled={createSubmitting || !newWeddingId}
-            >
+            <Button type="button" onClick={handleCreateInvoice} disabled={createSubmitting || !newWeddingId}>
               {createSubmitting && <Loader2 className="w-4 h-4 mr-2 animate-spin" />}
-              Créer
+              Créer et ouvrir
             </Button>
           </DialogFooter>
         </DialogContent>
@@ -621,12 +504,14 @@ export function BillingDashboard() {
   )
 }
 
-function Field({ label, children }: { label: string; children: React.ReactNode }) {
+function Kpi({ label, value }: { label: string; value: string }) {
   return (
-    <div className="space-y-2">
-      <label className="text-sm font-medium text-gray-800">{label}</label>
-      {children}
-    </div>
+    <Card className="bg-white border-gray-100 shadow-sm">
+      <CardContent className="pt-5">
+        <p className="text-sm text-gray-500">{label}</p>
+        <p className="mt-1 text-2xl font-semibold text-gray-900">{value}</p>
+      </CardContent>
+    </Card>
   )
 }
 

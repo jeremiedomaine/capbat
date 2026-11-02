@@ -10,7 +10,7 @@ export default function FacturationPage() {
           <header className="space-y-2">
             <h1 className="text-2xl font-semibold text-gray-900">Facturation</h1>
             <p className="text-sm text-gray-500">
-              Gérez vos factures, générez les brouillons automatiquement et exportez les PDF.
+              Une facture par acompte et par solde, au design du domaine. Ouvrez-en une pour ajouter les extras.
             </p>
           </header>
           <BillingDashboard />
