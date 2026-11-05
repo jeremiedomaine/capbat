@@ -1,9 +1,7 @@
 import { NextResponse } from "next/server"
 import { createClient } from "@/lib/supabase/server"
 
-/** Retourne null si OK, sinon la réponse Next à retourner telle quelle. */
-export async function gateInternalToolAccess(): Promise<Response | null> {
-  const supabase = await createClient()
+async function resolveUser(supabase: Awaited<ReturnType<typeof createClient>>) {
   const auth = await Promise.race([
     supabase.auth.getUser(),
     new Promise<{ data: { user: null }; error: Error }>((resolve) => {
@@ -13,11 +11,37 @@ export async function gateInternalToolAccess(): Promise<Response | null> {
       )
     }),
   ])
-  const user = auth.data.user
-  const error = "error" in auth ? auth.error : null
 
-  if (error || !user) {
-    return NextResponse.json({ error: "Non autorisé." }, { status: 401 })
+  if (auth.data.user) return auth.data.user
+
+  // Access token expiré : tente un refresh explicite (écrit les cookies via setAll).
+  const refreshed = await Promise.race([
+    supabase.auth.refreshSession(),
+    new Promise<{ data: { user: null; session: null }; error: Error }>((resolve) => {
+      setTimeout(
+        () =>
+          resolve({
+            data: { user: null, session: null },
+            error: new Error("Auth refresh timeout"),
+          }),
+        8000
+      )
+    }),
+  ])
+
+  return refreshed.data.user ?? refreshed.data.session?.user ?? null
+}
+
+/** Retourne null si OK, sinon la réponse Next à retourner telle quelle. */
+export async function gateInternalToolAccess(): Promise<Response | null> {
+  const supabase = await createClient()
+  const user = await resolveUser(supabase)
+
+  if (!user) {
+    return NextResponse.json(
+      { error: "Non autorisé. Session expirée : reconnecte-toi." },
+      { status: 401 }
+    )
   }
 
   const allowlistEnv = process.env.INTERNAL_ALLOWED_EMAILS?.trim()
