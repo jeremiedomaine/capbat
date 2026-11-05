@@ -51,8 +51,8 @@ export function Sidebar() {
 
     applyProfile()
     loadWorkspaceSettings().then((settings) => {
-      setManagerName(settings.managerName)
-      setCompanyName(settings.companyName)
+      setManagerName(settings.managerName?.trim() || "Marie Clément")
+      setCompanyName(settings.companyName?.trim() || "Domaine des Roses")
     })
     window.addEventListener(PROFILE_EVENTS.manager, applyProfile)
     window.addEventListener(PROFILE_EVENTS.company, applyProfile)
@@ -84,8 +84,8 @@ export function Sidebar() {
   }
 
   const managerInitials = useMemo(() => {
-    const parts = managerName
-      .split(" ")
+    const parts = (managerName ?? "")
+      .split(/\s+/)
       .filter(Boolean)
       .slice(0, 2)
     if (!parts.length) return "MC"

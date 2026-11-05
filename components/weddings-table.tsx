@@ -269,16 +269,25 @@ export function WeddingsTable({ mode = "dashboard" }: WeddingsTableProps) {
             <div className="mx-6 mt-4 mb-2 rounded-lg border border-red-100 bg-red-50 px-4 py-3 text-sm text-red-800">
               <p className="font-medium">Données non chargées</p>
               <p className="mt-1 text-red-700">{loadError}</p>
-              <p className="mt-2 text-xs text-red-600">
-                Dans Vercel → Settings → Environment Variables : pour chaque variable, coche{" "}
-                <strong>Production</strong> (pas seulement Preview). Ajoute{" "}
-                <strong>NEXT_PUBLIC_SUPABASE_URL</strong>{" "}
-                <span className="opacity-90">
-                  (ou duplique la même URL en <strong>SUPABASE_URL</strong> côté serveur)
-                </span>
-                , plus <strong>SUPABASE_SERVICE_ROLE_KEY</strong> (secret service_role). Optionnel :{" "}
-                <strong>SUPABASE_RESERVATIONS_TABLE</strong>. Puis Redeploy.
-              </p>
+              {/session expirée|non autorisé/i.test(loadError) ? (
+                <p className="mt-2 text-xs text-red-600">
+                  <a href="/login" className="font-medium underline">
+                    Reconnecte-toi
+                  </a>{" "}
+                  pour recharger les événements.
+                </p>
+              ) : /SUPABASE|Vercel|service_role|variable/i.test(loadError) ? (
+                <p className="mt-2 text-xs text-red-600">
+                  Dans Vercel → Settings → Environment Variables : pour chaque variable, coche{" "}
+                  <strong>Production</strong> (pas seulement Preview). Ajoute{" "}
+                  <strong>NEXT_PUBLIC_SUPABASE_URL</strong>{" "}
+                  <span className="opacity-90">
+                    (ou duplique la même URL en <strong>SUPABASE_URL</strong> côté serveur)
+                  </span>
+                  , plus <strong>SUPABASE_SERVICE_ROLE_KEY</strong> (secret service_role). Optionnel :{" "}
+                  <strong>SUPABASE_RESERVATIONS_TABLE</strong>. Puis Redeploy.
+                </p>
+              ) : null}
             </div>
           ) : null}
 

@@ -45,6 +45,10 @@ export function mergeWorkspaceSettings(
   return {
     ...DEFAULT_WORKSPACE_SETTINGS,
     ...partial,
+    companyName: partial.companyName ?? DEFAULT_WORKSPACE_SETTINGS.companyName,
+    managerName: partial.managerName ?? DEFAULT_WORKSPACE_SETTINGS.managerName,
+    contactEmail: partial.contactEmail ?? DEFAULT_WORKSPACE_SETTINGS.contactEmail,
+    contactPhone: partial.contactPhone ?? DEFAULT_WORKSPACE_SETTINGS.contactPhone,
     billing: {
       ...DEFAULT_BILLING_PROFILE,
       ...partial.billing,

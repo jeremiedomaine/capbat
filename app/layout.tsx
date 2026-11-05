@@ -3,6 +3,7 @@ import { Geist, Geist_Mono } from 'next/font/google'
 import { Analytics } from '@vercel/analytics/next'
 import './globals.css'
 import { AppToaster } from '@/components/app-toaster'
+import { AuthSessionKeeper } from '@/components/auth-session-keeper'
 import { isReadOnlyMode } from '@/lib/read-only'
 
 const _geist = Geist({ subsets: ["latin"] });
@@ -39,6 +40,7 @@ export default function RootLayout({
   return (
     <html lang="fr" className="bg-gray-50">
       <body className="font-sans antialiased">
+        <AuthSessionKeeper />
         {children}
         {isReadOnlyMode() ? (
           <div className="pointer-events-none fixed left-1/2 top-2 z-50 -translate-x-1/2 rounded-full bg-amber-500 px-3 py-1 text-xs font-medium text-white shadow">

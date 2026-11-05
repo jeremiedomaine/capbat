@@ -1,4 +1,9 @@
 import { type NextRequest, NextResponse } from "next/server"
+import {
+  canAttemptRefresh,
+  isAccessTokenExpired,
+  parseSupabaseAuthSession,
+} from "@/lib/auth/session-cookie"
 
 function isPublicAuthPath(pathname: string) {
   return (
@@ -16,10 +21,43 @@ function isAutomationEndpoint(pathname: string) {
   )
 }
 
-function hasSupabaseAuthCookie(request: NextRequest) {
-  return request.cookies.getAll().some((cookie) => cookie.name.includes("-auth-token"))
+function clearAuthCookies(response: NextResponse, request: NextRequest) {
+  const secure = request.nextUrl.protocol === "https:"
+  for (const cookie of request.cookies.getAll()) {
+    if (!cookie.name.includes("-auth-token")) continue
+    response.cookies.set(cookie.name, "", {
+      httpOnly: true,
+      secure,
+      sameSite: "lax",
+      path: "/",
+      maxAge: 0,
+    })
+  }
 }
 
+function unauthenticatedResponse(request: NextRequest) {
+  const pathname = request.nextUrl.pathname
+  if (pathname.startsWith("/api/")) {
+    return NextResponse.json({ error: "Non autorisé." }, { status: 401 })
+  }
+  if (isPublicAuthPath(pathname)) {
+    return NextResponse.next()
+  }
+  const login = request.nextUrl.clone()
+  login.pathname = "/login"
+  login.searchParams.set("next", pathname)
+  const response = NextResponse.redirect(login)
+  clearAuthCookies(response, request)
+  return response
+}
+
+/**
+ * Auth Edge sans appel réseau Supabase (évite les timeouts Vercel).
+ * - cookie absent / illisible → login
+ * - access token expiré sans refresh token → login + purge cookies
+ * - sinon laisse passer ; le refresh se fait côté navigateur (AuthSessionKeeper)
+ *   et dans les API Node via getUser().
+ */
 export function middleware(request: NextRequest) {
   const pathname = request.nextUrl.pathname
 
@@ -27,19 +65,24 @@ export function middleware(request: NextRequest) {
     return NextResponse.next()
   }
 
-  const signedIn = hasSupabaseAuthCookie(request)
+  const cookies = request.cookies.getAll()
+  const session = parseSupabaseAuthSession(cookies)
+  const hasAuthCookie = cookies.some((cookie) => cookie.name.includes("-auth-token"))
 
-  if (!signedIn) {
-    if (pathname.startsWith("/api/")) {
-      return NextResponse.json({ error: "Non autorisé." }, { status: 401 })
-    }
-    if (isPublicAuthPath(pathname)) {
-      return NextResponse.next()
-    }
-    const login = request.nextUrl.clone()
-    login.pathname = "/login"
-    login.searchParams.set("next", pathname)
-    return NextResponse.redirect(login)
+  if (!hasAuthCookie) {
+    return unauthenticatedResponse(request)
+  }
+
+  // Cookie présent mais illisible, ou access expiré sans refresh possible.
+  if (
+    !session ||
+    (isAccessTokenExpired(session) && !canAttemptRefresh(session))
+  ) {
+    return unauthenticatedResponse(request)
+  }
+
+  if (pathname.startsWith("/login")) {
+    return NextResponse.redirect(new URL("/", request.url))
   }
 
   return NextResponse.next()
