@@ -1,5 +1,7 @@
 export type InvoiceType = "deposit" | "balance" | "full"
 export type InvoiceStatus = "draft" | "sent" | "paid" | "cancelled"
+/** Ton de la facture : mariage (plus chaleureux) ou autre prestation. */
+export type InvoiceOccasion = "wedding" | "other"
 
 export type InvoiceParty = {
   name: string
@@ -17,6 +19,10 @@ export type InvoiceLineItemKind = "standard" | "extra" | "discount"
 
 export type InvoiceLineItem = {
   label: string
+  description?: string
+  /** Période facultative affichée sous la désignation (YYYY-MM-DD). */
+  periodStart?: string
+  periodEnd?: string
   quantity: number
   unitPrice: number
   kind?: InvoiceLineItemKind
@@ -28,6 +34,7 @@ export type Invoice = {
   weddingId: number
   couple: string
   type: InvoiceType
+  occasion: InvoiceOccasion
   status: InvoiceStatus
   issuedAt: string
   dueAt: string
@@ -46,6 +53,7 @@ export type CreateInvoiceInput = {
   weddingId: number
   couple: string
   type: InvoiceType
+  occasion?: InvoiceOccasion
   amountTtc: number
   lineItems: InvoiceLineItem[]
   issuer: InvoiceParty
@@ -67,6 +75,7 @@ export type UpdateInvoiceInput = {
   notes?: string
   status?: InvoiceStatus
   client?: InvoiceParty
+  issuer?: InvoiceParty
   locked?: boolean
 }
 
@@ -76,9 +85,18 @@ export const INVOICE_TYPE_LABELS: Record<InvoiceType, string> = {
   full: "Facture globale",
 }
 
+export const INVOICE_OCCASION_LABELS: Record<InvoiceOccasion, string> = {
+  wedding: "Mariage",
+  other: "Autre",
+}
+
 export const INVOICE_STATUS_LABELS: Record<InvoiceStatus, string> = {
   draft: "Brouillon",
   sent: "Envoyée",
   paid: "Payée",
   cancelled: "Annulée",
+}
+
+export function parseInvoiceOccasion(raw: unknown): InvoiceOccasion {
+  return String(raw ?? "").trim().toLowerCase() === "other" ? "other" : "wedding"
 }

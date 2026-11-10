@@ -2,7 +2,9 @@ import { NextResponse } from "next/server"
 import { gateInternalToolAccess } from "@/lib/auth/internal-session"
 import { createInvoice, listInvoices } from "@/lib/invoices-store"
 import type { CreateInvoiceInput } from "@/lib/invoice-types"
+import { buildIssuerFromSettings } from "@/lib/invoice-issuer"
 import { lineItemsTotal } from "@/lib/invoice-utils"
+import { getWorkspaceSettings } from "@/lib/workspace-settings-store"
 
 export async function GET() {
   try {
@@ -26,7 +28,6 @@ export async function POST(request: Request) {
       !body.weddingId ||
       !body.couple ||
       !body.type ||
-      !body.issuer ||
       !body.client ||
       !body.lineItems?.length
     ) {
@@ -40,9 +41,10 @@ export async function POST(request: Request) {
       weddingId: Number(body.weddingId),
       couple: body.couple,
       type: body.type,
+      occasion: body.occasion,
       amountTtc: body.amountTtc ?? lineItemsTotal(body.lineItems),
       lineItems: body.lineItems,
-      issuer: body.issuer,
+      issuer: buildIssuerFromSettings(await getWorkspaceSettings()),
       client: body.client,
       issuedAt: body.issuedAt,
       dueAt: body.dueAt,

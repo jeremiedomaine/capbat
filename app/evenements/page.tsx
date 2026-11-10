@@ -11,10 +11,10 @@ export default function EventsPage() {
         <div className="p-8 max-w-7xl mx-auto space-y-6">
           <header className="flex items-start justify-between gap-4">
             <div className="space-y-2">
-              <h1 className="text-2xl font-semibold text-gray-900">Liste des Événements</h1>
+              <h1 className="text-2xl font-semibold text-gray-900">Liste des événements</h1>
               <p className="text-sm text-gray-500">
-                Retrouvez ici tous vos événements planifiés, filtrables par année (saison). Cliquez
-                sur un événement pour ouvrir sa fiche détaillée.
+                Planning par mois, filtrable par saison et type. Cliquez une ligne pour ouvrir la
+                fiche.
               </p>
             </div>
             <Button

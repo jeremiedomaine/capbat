@@ -8,9 +8,9 @@ export default function FacturationPage() {
       <main className="flex-1 overflow-y-auto">
         <div className="p-8 max-w-7xl mx-auto space-y-6">
           <header className="space-y-2">
-            <h1 className="text-2xl font-semibold text-gray-900">Facturation</h1>
+            <h1 className="text-2xl font-semibold text-gray-900">Factures</h1>
             <p className="text-sm text-gray-500">
-              Gérez vos factures, générez les brouillons automatiquement et exportez les PDF.
+              Retrouvez, filtrez et ouvrez vos factures. Créez-en une nouvelle quand vous en avez besoin.
             </p>
           </header>
           <BillingDashboard />

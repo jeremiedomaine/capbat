@@ -92,13 +92,14 @@ export async function generateInvoicesForWeddings(
         weddingId: wedding.id,
         couple: wedding.couple,
         type,
+        occasion: wedding.eventType === "wedding" ? "wedding" : "other",
         amountTtc: lineItemsTotal(lineItems),
         lineItems,
         issuer: options.issuer,
         client: weddingToClientParty(wedding),
         issuedAt,
         dueAt,
-        vatRate: options.vatRate ?? 20,
+        vatRate: options.vatRate ?? 10,
         status: "draft",
       }
 

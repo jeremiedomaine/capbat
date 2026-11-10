@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server"
 import { gateInternalToolAccess } from "@/lib/auth/internal-session"
+import { parseBookingSource } from "@/lib/booking-source"
 import { parseEventType } from "@/lib/event-types"
 import { parsePaymentMethod } from "@/lib/payment-methods"
 import { parseTouristTaxStatus } from "@/lib/tourist-tax"
@@ -48,6 +49,7 @@ export async function PATCH(
 
     const body = (await request.json()) as {
       eventType?: string
+      bookingSource?: string
       couple?: string
       contactName?: string
       email?: string
@@ -55,6 +57,8 @@ export async function PATCH(
       spouse1Phone?: string
       spouse2Phone?: string
       eventDate?: string
+      stayArrivalDate?: string
+      stayDepartureDate?: string
       depositAmount?: string
       balanceAmount?: string
       autopilot?: boolean
@@ -69,6 +73,8 @@ export async function PATCH(
 
     const updated = await updateWedding(weddingId, {
       eventType: body.eventType ? parseEventType(body.eventType) : undefined,
+      bookingSource:
+        body.bookingSource === undefined ? undefined : parseBookingSource(body.bookingSource),
       couple: body.couple,
       contactName: body.contactName,
       email: body.email,
@@ -76,6 +82,8 @@ export async function PATCH(
       spouse1Phone: body.spouse1Phone,
       spouse2Phone: body.spouse2Phone,
       eventDate: body.eventDate,
+      stayArrivalDate: body.stayArrivalDate,
+      stayDepartureDate: body.stayDepartureDate,
       depositAmount: body.depositAmount,
       balanceAmount: body.balanceAmount,
       autopilot: body.autopilot,

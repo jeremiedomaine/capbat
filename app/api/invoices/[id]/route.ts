@@ -1,7 +1,9 @@
 import { NextResponse } from "next/server"
 import { gateInternalToolAccess } from "@/lib/auth/internal-session"
+import { buildIssuerFromSettings } from "@/lib/invoice-issuer"
 import { deleteInvoice, getInvoice, updateInvoice } from "@/lib/invoices-store"
 import type { InvoiceStatus, UpdateInvoiceInput } from "@/lib/invoice-types"
+import { getWorkspaceSettings } from "@/lib/workspace-settings-store"
 
 type RouteContext = { params: Promise<{ id: string }> }
 
@@ -30,6 +32,16 @@ export async function PATCH(request: Request, context: RouteContext) {
 
     if (!body || Object.keys(body).length === 0) {
       return NextResponse.json({ error: "Aucune modification fournie." }, { status: 400 })
+    }
+
+    delete body.issuer
+    const current = await getInvoice(id)
+    const freezesIssuer =
+      current?.status === "draft" &&
+      !current.locked &&
+      ((body.status !== undefined && body.status !== "draft") || body.locked === true)
+    if (freezesIssuer) {
+      body.issuer = buildIssuerFromSettings(await getWorkspaceSettings())
     }
 
     const invoice = await updateInvoice(id, body)

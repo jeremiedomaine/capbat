@@ -17,6 +17,14 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select"
+import {
+  BOOKING_SOURCE_HINTS,
+  BOOKING_SOURCE_LABELS,
+  getBookingSourceBadgeClass,
+  isBookingSource,
+  isPlatformBooking,
+  type BookingSource,
+} from "@/lib/booking-source"
 import { EVENT_TYPE_LABELS, getEventTypeBadgeClass, isWeddingEventType, type EventType } from "@/lib/event-types"
 import { formatEventDateFr } from "@/lib/event-dates"
 import {
@@ -34,6 +42,7 @@ import { formatSpouseName } from "@/lib/wedding-display"
 type WeddingDetail = {
   id: number
   eventType: EventType
+  bookingSource: BookingSource
   eventName: string
   couple: string
   contactName: string
@@ -48,6 +57,8 @@ type WeddingDetail = {
   email: string
   phone: string
   eventDate: string
+  stayArrivalDate: string
+  stayDepartureDate: string
   deposit: { amount: string; status: string }
   balance: { amount: string; status: string }
   depositPaidDate: string
@@ -83,7 +94,9 @@ export default function EventDetailPage() {
   const [touristTaxStatus, setTouristTaxStatus] = useState<TouristTaxStatus | "">("")
   const [touristTaxAmount, setTouristTaxAmount] = useState("")
   const [touristTaxPaidDate, setTouristTaxPaidDate] = useState("")
+  const [bookingSource, setBookingSource] = useState<BookingSource>("direct")
   const [savingPayments, setSavingPayments] = useState(false)
+  const [savingSource, setSavingSource] = useState(false)
 
   useEffect(() => {
     let cancelled = false
@@ -106,6 +119,7 @@ export default function EventDetailPage() {
           setTouristTaxStatus(payload.wedding.touristTaxStatus ?? "")
           setTouristTaxAmount(payload.wedding.touristTaxAmount ?? "")
           setTouristTaxPaidDate((payload.wedding.touristTaxPaidDate ?? "").slice(0, 10))
+          setBookingSource(payload.wedding.bookingSource ?? "direct")
         }
       } catch (e) {
         if (!cancelled) {
@@ -122,6 +136,32 @@ export default function EventDetailPage() {
       cancelled = true
     }
   }, [id])
+
+  async function handleSaveBookingSource(next: BookingSource) {
+    setBookingSource(next)
+    setSavingSource(true)
+    try {
+      const response = await fetch(`/api/weddings/${id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ bookingSource: next }),
+      })
+      const payload = (await response.json()) as { wedding?: WeddingDetail; error?: string }
+      if (!response.ok) throw new Error(payload.error ?? "Enregistrement impossible.")
+      if (payload.wedding) {
+        setWedding(payload.wedding)
+        setBookingSource(payload.wedding.bookingSource ?? "direct")
+      }
+      window.dispatchEvent(new Event("weddings-updated"))
+      toast.success("Source de réservation mise à jour")
+    } catch (e) {
+      toast.error("Enregistrement impossible", {
+        description: e instanceof Error ? e.message : "Réessayez.",
+      })
+    } finally {
+      setSavingSource(false)
+    }
+  }
 
   async function handleSavePayments() {
     setSavingPayments(true)
@@ -152,6 +192,7 @@ export default function EventDetailPage() {
         setTouristTaxStatus(payload.wedding.touristTaxStatus ?? "")
         setTouristTaxAmount(payload.wedding.touristTaxAmount ?? "")
         setTouristTaxPaidDate((payload.wedding.touristTaxPaidDate ?? "").slice(0, 10))
+        setBookingSource(payload.wedding.bookingSource ?? "direct")
       }
       window.dispatchEvent(new Event("weddings-updated"))
       toast.success("Suivi des paiements enregistré")
@@ -197,12 +238,18 @@ export default function EventDetailPage() {
           {!loading && wedding ? (
             <>
               <header className="space-y-3">
-                <div className="flex items-center gap-2">
+                <div className="flex flex-wrap items-center gap-2">
                   <Badge
                     variant="outline"
                     className={getEventTypeBadgeClass(wedding.eventType)}
                   >
                     {EVENT_TYPE_LABELS[wedding.eventType]}
+                  </Badge>
+                  <Badge
+                    variant="outline"
+                    className={getBookingSourceBadgeClass(bookingSource)}
+                  >
+                    {BOOKING_SOURCE_LABELS[bookingSource]}
                   </Badge>
                 </div>
                 <h1 className="text-2xl font-semibold text-gray-900">
@@ -219,9 +266,46 @@ export default function EventDetailPage() {
                   <CardTitle className="text-base">Identité de l&apos;événement</CardTitle>
                 </CardHeader>
                 <CardContent className="grid grid-cols-1 md:grid-cols-2 gap-5">
+                  <div className="space-y-2 md:col-span-2">
+                    <label className="text-xs font-medium uppercase tracking-wide text-gray-400">
+                      Source de réservation
+                    </label>
+                    <Select
+                      value={bookingSource}
+                      disabled={savingSource}
+                      onValueChange={(value) => {
+                        if (isBookingSource(value)) void handleSaveBookingSource(value)
+                      }}
+                    >
+                      <SelectTrigger className="w-full max-w-md bg-white">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="direct">{BOOKING_SOURCE_LABELS.direct}</SelectItem>
+                        <SelectItem value="platform">{BOOKING_SOURCE_LABELS.platform}</SelectItem>
+                      </SelectContent>
+                    </Select>
+                    <p className="text-xs text-gray-500">{BOOKING_SOURCE_HINTS[bookingSource]}</p>
+                  </div>
                   <DetailField label="Nom de l'événement" value={wedding.eventName} />
                   <DetailField label="Libellé tableau" value={wedding.couple} />
                   <DetailField label="Date" value={formatEventDateFr(wedding.eventDate)} />
+                  <DetailField
+                    label="Arrivée au logement"
+                    value={
+                      wedding.stayArrivalDate
+                        ? formatEventDateFr(wedding.stayArrivalDate)
+                        : "—"
+                    }
+                  />
+                  <DetailField
+                    label="Départ du logement"
+                    value={
+                      wedding.stayDepartureDate
+                        ? formatEventDateFr(wedding.stayDepartureDate)
+                        : "—"
+                    }
+                  />
                   <DetailField label="Dernière activité" value={wedding.lastActivity} />
                 </CardContent>
               </Card>
@@ -377,13 +461,12 @@ export default function EventDetailPage() {
                 </CardContent>
               </Card>
 
-              {wedding.eventType !== "other" ? (
+              {wedding.eventType !== "other" && !isPlatformBooking(bookingSource) ? (
                 <Card>
                   <CardHeader>
                     <CardTitle className="text-base">Taxe de séjour</CardTitle>
                     <CardDescription>
-                      Suivi pour la déclaration mensuelle à l&apos;agglo. Les montants restent
-                      optionnels.
+                      Suivi pour la déclaration. Les montants restent optionnels.
                     </CardDescription>
                   </CardHeader>
                   <CardContent className="grid grid-cols-1 md:grid-cols-3 gap-4">

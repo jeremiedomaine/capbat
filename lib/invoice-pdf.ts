@@ -1,289 +1,554 @@
 import { readFile } from "fs/promises"
 import path from "path"
-import { PDFDocument, StandardFonts, rgb, type PDFFont, type PDFPage } from "pdf-lib"
+import fontkit from "@pdf-lib/fontkit"
 import {
-  DEFAULT_INVOICE_TEMPLATE,
-  hexToRgb,
-  mergeInvoiceTemplate,
-  type InvoiceTemplate,
-} from "@/lib/invoice-template"
-import type { Invoice } from "@/lib/invoice-types"
-import { INVOICE_TYPE_LABELS } from "@/lib/invoice-types"
-import {
-  computeAmountHt,
-  computeVatAmount,
-  formatEuroDetailed,
-} from "@/lib/invoice-utils"
+  PDFDocument,
+  rgb,
+  setCharacterSpacing,
+  type PDFFont,
+  type PDFImage,
+  type PDFPage,
+  type RGB,
+} from "pdf-lib"
+import { formatEuroDocument, type InvoiceDocumentModel } from "@/lib/invoice-document"
 
-const PAGE_WIDTH = 595.28
-const PAGE_HEIGHT = 841.89
-const MARGIN = 50
+/**
+ * Mise en page en pixels CSS (794 × 1123, comme l'aperçu écran), convertie en points PDF.
+ */
+const PX = 595.28 / 794
+const PAGE_W = 794
+const PAGE_H = 1123
+const LEFT = 64
+const RIGHT = 730
+const CONTENT_W = RIGHT - LEFT
+const BOTTOM_PADDING = 40
+
+const FONT_DIR = path.join(process.cwd(), "public", "fonts")
 const LOGO_PATH = path.join(process.cwd(), "public", "logo-domaine.png")
-const LOGO_WIDTH = 76
 
-const brand = rgb(0.35, 0.3, 0.22)
-const gray = rgb(0.22, 0.25, 0.29)
-const grayLight = rgb(0.42, 0.45, 0.5)
-const grayMuted = rgb(0.61, 0.64, 0.69)
-const discountColor = rgb(0.7, 0.2, 0.2)
+const COLORS = {
+  ink: hex("#3b372f"),
+  inkSoft: hex("#6f685b"),
+  inkMuted: hex("#9a917f"),
+  gold: hex("#a8885a"),
+  sand: hex("#d5c2a0"),
+  sandLight: hex("#ece2cf"),
+  cream: hex("#fbf8f2"),
+  paper: hex("#fffdf9"),
+  discount: hex("#a0523a"),
+}
 
-export async function buildInvoicePdf(
-  invoice: Invoice,
-  templateInput?: Partial<InvoiceTemplate>
-): Promise<Buffer> {
-  const template = mergeInvoiceTemplate(templateInput)
-  const primary = resolvePrimaryColor(template.primaryColor)
+type Fonts = {
+  serif: PDFFont
+  serifMedium: PDFFont
+  serifItalic: PDFFont
+  light: PDFFont
+  regular: PDFFont
+}
 
-  const doc = await PDFDocument.create()
-  const regular = await doc.embedFont(StandardFonts.Helvetica)
-  const bold = await doc.embedFont(StandardFonts.HelveticaBold)
-  const page = doc.addPage([PAGE_WIDTH, PAGE_HEIGHT])
+type TextOptions = {
+  align?: "left" | "right" | "center"
+  spacing?: number
+  opacity?: number
+}
 
-  const issuer = invoice.issuer
-  const client = invoice.client
-  const amountHt = computeAmountHt(invoice.amountTtc, invoice.vatRate)
-  const vatAmount = computeVatAmount(invoice.amountTtc, invoice.vatRate)
+class Canvas {
+  page!: PDFPage
+  pageCount = 0
 
-  let y = PAGE_HEIGHT - MARGIN
-  let textX = MARGIN
+  constructor(
+    private readonly doc: PDFDocument,
+    readonly fonts: Fonts,
+    private readonly logo: PDFImage | null
+  ) {}
 
-  const logo = await embedDomainLogo(doc)
-  if (logo) {
-    const logoHeight = (logo.height / logo.width) * LOGO_WIDTH
-    page.drawImage(logo, {
-      x: MARGIN,
-      y: y - logoHeight,
-      width: LOGO_WIDTH,
-      height: logoHeight,
+  addPage() {
+    this.page = this.doc.addPage([PAGE_W * PX, PAGE_H * PX])
+    this.pageCount += 1
+    this.page.drawRectangle({ x: 0, y: 0, width: PAGE_W * PX, height: PAGE_H * PX, color: COLORS.paper })
+    this.page.drawRectangle({
+      x: 18 * PX,
+      y: 18 * PX,
+      width: (PAGE_W - 36) * PX,
+      height: (PAGE_H - 36) * PX,
+      borderColor: COLORS.sandLight,
+      borderWidth: 1 * PX,
     })
-    textX = MARGIN + LOGO_WIDTH + 16
   }
 
-  y = drawLine(page, issuer.name, textX, y, 20, bold, brand)
-  y -= 6
-
-  for (const line of [
-    issuer.addressLine,
-    [issuer.postalCode, issuer.city].filter(Boolean).join(" ") || null,
-    issuer.email,
-    issuer.phone,
-    issuer.contactName && issuer.contactName !== issuer.name
-      ? `Contact : ${issuer.contactName}`
-      : null,
-    issuer.siret ? `SIRET : ${issuer.siret}` : null,
-    issuer.vatNumber ? `N° TVA : ${issuer.vatNumber}` : null,
-  ]) {
-    if (line) y = drawLine(page, line, textX, y, 10, regular, gray)
+  image(x: number, top: number, size: number) {
+    if (!this.logo) return
+    this.page.drawImage(this.logo, { x: x * PX, y: (PAGE_H - top - size) * PX, width: size * PX, height: size * PX })
   }
 
-  y -= 20
-  const rightX = PAGE_WIDTH - MARGIN
-  y = drawLineRight(page, INVOICE_TYPE_LABELS[invoice.type].toUpperCase(), rightX, y, 16, bold, gray)
-  y = drawLineRight(page, `N° ${invoice.number}`, rightX, y, 10, regular, grayLight)
-  y = drawLineRight(
-    page,
-    `Date d'émission : ${formatFrenchDate(invoice.issuedAt)}`,
-    rightX,
-    y,
-    10,
-    regular,
-    grayLight
-  )
-  y = drawLineRight(
-    page,
-    `Échéance : ${formatFrenchDate(invoice.dueAt)}`,
-    rightX,
-    y,
-    10,
-    regular,
-    grayLight
-  )
-
-  if (invoice.locked) {
-    y = drawLineRight(page, "VERROUILLÉE", rightX, y, 9, bold, discountColor)
+  width(text: string, size: number, font: PDFFont, spacing = 0) {
+    const safe = sanitize(text)
+    return font.widthOfTextAtSize(safe, size * PX) / PX + spacing * size * safe.length
   }
 
-  y -= 28
-  y = drawLine(page, "Facturé à", MARGIN, y, 11, bold, gray)
-  y -= 4
-
-  for (const line of [
-    client.name,
-    client.contactName && client.contactName !== client.name
-      ? `À l'attention de ${client.contactName}`
-      : null,
-    client.email,
-    client.phone,
-    client.addressLine,
-    [client.postalCode, client.city].filter(Boolean).join(" ") || null,
-  ]) {
-    if (line) y = drawLine(page, line, MARGIN, y, 10, regular, gray)
+  text(text: string, x: number, baseline: number, size: number, font: PDFFont, color: RGB, options: TextOptions = {}) {
+    const safe = sanitize(text)
+    if (!safe) return
+    const spacing = options.spacing ?? 0
+    const width = this.width(safe, size, font, spacing)
+    const startX = options.align === "right" ? x - width : options.align === "center" ? x - width / 2 : x
+    if (spacing) this.page.pushOperators(setCharacterSpacing(spacing * size * PX))
+    this.page.drawText(safe, {
+      x: startX * PX,
+      y: (PAGE_H - baseline) * PX,
+      size: size * PX,
+      font,
+      color,
+      opacity: options.opacity,
+    })
+    if (spacing) this.page.pushOperators(setCharacterSpacing(0))
   }
 
-  y -= 24
-  const tableTop = y
-  page.drawRectangle({
-    x: MARGIN,
-    y: tableTop - 20,
-    width: PAGE_WIDTH - MARGIN * 2,
-    height: 22,
-    color: primary,
-  })
-
-  drawText(page, "Description", MARGIN + 8, tableTop - 14, 9, bold, rgb(1, 1, 1))
-  drawText(page, "Qté", 320, tableTop - 14, 9, bold, rgb(1, 1, 1))
-  drawText(page, "P.U. TTC", 400, tableTop - 14, 9, bold, rgb(1, 1, 1))
-  drawText(page, "Total TTC", 480, tableTop - 14, 9, bold, rgb(1, 1, 1))
-
-  let rowY = tableTop - 36
-  for (const item of invoice.lineItems) {
-    const lineTtc = item.quantity * item.unitPrice
-    const isDiscount = item.kind === "discount" || item.unitPrice < 0
-    const rowColor = isDiscount ? discountColor : gray
-    drawText(page, truncate(item.label, 52), MARGIN + 8, rowY, 9, regular, rowColor)
-    drawText(page, String(item.quantity), 320, rowY, 9, regular, rowColor)
-    drawText(page, formatEuroDetailed(item.unitPrice), 400, rowY, 9, regular, rowColor)
-    drawText(page, formatEuroDetailed(lineTtc), 480, rowY, 9, regular, rowColor)
-    rowY -= 24
+  hLine(x1: number, x2: number, y: number, color: RGB, dash?: number[]) {
+    this.page.drawLine({
+      start: { x: x1 * PX, y: (PAGE_H - y) * PX },
+      end: { x: x2 * PX, y: (PAGE_H - y) * PX },
+      thickness: 1 * PX,
+      color,
+      dashArray: dash?.map((value) => value * PX),
+    })
   }
 
-  let totalsY = rowY - 16
-  totalsY = drawTotalsRow(page, "Total HT", formatEuroDetailed(amountHt), totalsY, regular)
-  totalsY = drawTotalsRow(
-    page,
-    `TVA (${invoice.vatRate} %)`,
-    formatEuroDetailed(vatAmount),
-    totalsY,
-    regular
-  )
-  drawTotalsRow(page, "Total TTC", formatEuroDetailed(invoice.amountTtc), totalsY, bold, 12)
-
-  let footerY = 120
-  if (invoice.notes) {
-    drawText(page, `Notes : ${invoice.notes}`, MARGIN, footerY, 9, regular, grayMuted, 495)
-    footerY -= 28
+  rect(x: number, top: number, width: number, height: number, fill: RGB, border?: RGB) {
+    this.page.drawRectangle({
+      x: x * PX,
+      y: (PAGE_H - top - height) * PX,
+      width: width * PX,
+      height: height * PX,
+      color: fill,
+      borderColor: border,
+      borderWidth: border ? 1 * PX : undefined,
+    })
   }
 
-  if (template.legalNotice.trim()) {
-    drawText(page, template.legalNotice.trim(), MARGIN, footerY, 8, regular, grayMuted, 495)
-    footerY -= 36
+  fern(centerX: number, centerY: number, size: number) {
+    const scale = (size / 24) * PX
+    const paths = [
+      "M12 21V5",
+      "M12 8c-2-1-4-1-5.5 0M12 8c2-1 4-1 5.5 0",
+      "M12 12c-2.4-1.2-4.8-1.2-6.8 0M12 12c2.4-1.2 4.8-1.2 6.8 0",
+      "M12 16c-2-1-4-1-5.5 0M12 16c2-1 4-1 5.5 0",
+    ]
+    for (const d of paths) {
+      this.page.drawSvgPath(d, {
+        x: (centerX - size / 2) * PX,
+        y: (PAGE_H - (centerY - size / 2)) * PX,
+        scale,
+        borderColor: COLORS.sand,
+        borderWidth: 1.2 * (size / 24) * PX,
+      })
+    }
   }
 
-  const footerText =
-    template.footerText.trim() || DEFAULT_INVOICE_TEMPLATE.footerText
-  if (footerText) {
-    drawText(page, footerText, MARGIN, 70, 8, regular, grayMuted, PAGE_WIDTH - MARGIN * 2, "center")
+  wrap(text: string, size: number, font: PDFFont, maxWidth: number): string[] {
+    const lines: string[] = []
+    for (const paragraph of sanitize(text).split(/\n/)) {
+      const words = paragraph.split(/\s+/).filter(Boolean)
+      let current = ""
+      for (const word of words) {
+        const candidate = current ? `${current} ${word}` : word
+        if (this.width(candidate, size, font) <= maxWidth || !current) {
+          current = candidate
+        } else {
+          lines.push(current)
+          current = word
+        }
+      }
+      lines.push(current)
+    }
+    return lines
+  }
+}
+
+export async function buildInvoicePdf(model: InvoiceDocumentModel): Promise<Buffer> {
+  const doc = await PDFDocument.create()
+  doc.registerFontkit(fontkit)
+  doc.setTitle(`${model.title} ${model.titleAccent} ${model.number}`.replace(/\s+/g, " "))
+  doc.setAuthor(model.issuer.name)
+
+  const fonts: Fonts = {
+    serif: await embedFont(doc, "CormorantGaramond-Regular.ttf"),
+    serifMedium: await embedFont(doc, "CormorantGaramond-Medium.ttf"),
+    serifItalic: await embedFont(doc, "CormorantGaramond-Italic.ttf"),
+    light: await embedFont(doc, "Jost-Light.ttf"),
+    regular: await embedFont(doc, "Jost-Regular.ttf"),
+  }
+  const logo = await embedLogo(doc)
+  const canvas = new Canvas(doc, fonts, logo)
+
+  canvas.addPage()
+  const footerTop = drawFooter(canvas, model)
+  let y = drawHeader(canvas, model)
+  y = drawParties(canvas, model, y)
+
+  let contentLimit = footerTop - 24
+  const startContinuation = () => {
+    canvas.addPage()
+    const top = drawFooter(canvas, model)
+    contentLimit = top - 24
+    canvas.text(`${model.title} ${model.titleAccent}`.trim(), LEFT, 74, 20, fonts.serif, COLORS.ink)
+    canvas.text(`N° ${model.number} — suite`, RIGHT, 72, 9, fonts.light, COLORS.inkMuted, {
+      align: "right",
+      spacing: 0.14,
+    })
+    canvas.hLine(LEFT, RIGHT, 92, COLORS.sandLight)
+    return 120
+  }
+
+  y += 42
+  y = drawTableHeader(canvas, y)
+  for (const line of model.lines) {
+    const rowHeight = measureRow(canvas, line)
+    if (y + rowHeight > contentLimit) {
+      y = drawTableHeader(canvas, startContinuation())
+    }
+    y = drawRow(canvas, line, y)
+  }
+
+  if (model.notes) {
+    const noteLines = canvas.wrap(model.notes, 11, fonts.light, CONTENT_W)
+    const height = 14 + noteLines.length * 18
+    if (y + height > contentLimit) y = startContinuation()
+    y += 14
+    for (const noteLine of noteLines) {
+      canvas.text(noteLine, LEFT, y + 12, 11, fonts.light, COLORS.inkSoft)
+      y += 18
+    }
+  }
+
+  const bottomHeight = measureBottom(model)
+  if (y + 26 + bottomHeight > contentLimit) y = startContinuation()
+  y = drawBottom(canvas, model, y + 26)
+
+  const paymentHeight = measurePayment(canvas, model)
+  if (y + paymentHeight > contentLimit) y = startContinuation()
+  y = drawPayment(canvas, model, y)
+
+  if (model.thanks.message || model.thanks.signature) {
+    const thanksTop = footerTop - 32 - 92
+    if (y + 40 > thanksTop) startContinuation()
+    drawThanks(canvas, model, thanksTop)
   }
 
   const bytes = await doc.save()
   return Buffer.from(bytes)
 }
 
-function resolvePrimaryColor(hex: string) {
-  const parsed = hexToRgb(hex)
-  if (!parsed) return rgb(0.12, 0.25, 0.69)
-  return rgb(parsed.r, parsed.g, parsed.b)
-}
+function drawHeader(canvas: Canvas, model: InvoiceDocumentModel): number {
+  const { fonts } = canvas
+  const center = PAGE_W / 2
+  const logoSize = 128
+  canvas.image(center - logoSize / 2, 48, logoSize)
 
-function drawLine(
-  page: PDFPage,
-  text: string,
-  x: number,
-  y: number,
-  size: number,
-  font: PDFFont,
-  color: ReturnType<typeof rgb>
-) {
-  drawText(page, sanitizePdfText(text), x, y - size, size, font, color)
-  return y - size - 4
-}
-
-function drawLineRight(
-  page: PDFPage,
-  text: string,
-  rightX: number,
-  y: number,
-  size: number,
-  font: PDFFont,
-  color: ReturnType<typeof rgb>
-) {
-  const safe = sanitizePdfText(text)
-  const width = font.widthOfTextAtSize(safe, size)
-  drawText(page, safe, rightX - width, y - size, size, font, color)
-  return y - size - 4
-}
-
-function drawTotalsRow(
-  page: PDFPage,
-  label: string,
-  value: string,
-  y: number,
-  font: PDFFont,
-  size = 10
-) {
-  drawText(page, label, 360, y, size, font, gray)
-  const valueWidth = font.widthOfTextAtSize(sanitizePdfText(value), size)
-  drawText(page, sanitizePdfText(value), PAGE_WIDTH - MARGIN - valueWidth, y, size, font, gray)
-  return y - (size + 8)
-}
-
-function drawText(
-  page: PDFPage,
-  text: string,
-  x: number,
-  y: number,
-  size: number,
-  font: PDFFont,
-  color: ReturnType<typeof rgb>,
-  maxWidth?: number,
-  align?: "left" | "center"
-) {
-  const safe = sanitizePdfText(text)
-  if (!maxWidth || align !== "center") {
-    page.drawText(safe, { x, y, size, font, color })
-    return
-  }
-  const width = font.widthOfTextAtSize(safe, size)
-  page.drawText(safe, { x: x + (maxWidth - width) / 2, y, size, font, color })
-}
-
-/** WinAnsi (Helvetica) : remplace les caractères non supportés. */
-function sanitizePdfText(text: string) {
-  return text
-    .normalize("NFC")
-    .replace(/[\u2018\u2019]/g, "'")
-    .replace(/[\u201C\u201D]/g, '"')
-    .replace(/[\u2013\u2014]/g, "-")
-    .replace(/[^\x00-\xff]/g, (ch) => {
-      if (ch === "\u20ac") return " EUR"
-      if (ch === "\u0153") return "oe"
-      if (ch === "\u0152") return "OE"
-      if (ch === "\u00e6") return "ae"
-      if (ch === "\u00c6") return "AE"
-      return ""
+  let y = 48 + logoSize + 12
+  canvas.text(model.issuer.name, center, y + 24, 26, fonts.serifMedium, COLORS.ink, {
+    align: "center",
+    spacing: 0.04,
+  })
+  y += 28
+  if (model.issuer.tagline) {
+    canvas.text(model.issuer.tagline.toUpperCase(), center, y + 10, 9.5, fonts.light, COLORS.gold, {
+      align: "center",
+      spacing: 0.28,
     })
+    y += 14
+  }
+  y += 6
+  for (const line of model.issuer.lines) {
+    canvas.text(line, center, y + 11, 10.5, fonts.light, COLORS.inkSoft, { align: "center" })
+    y += 16
+  }
+
+  y += 22
+  const isOther = model.occasion === "other"
+  const accent = model.titleAccent
+  if (isOther) {
+    const title = model.title.toUpperCase()
+    const titleWidth = canvas.width(title, 28, fonts.regular, 0.04)
+    const accentWidth = accent ? canvas.width(` ${accent}`, 16, fonts.light) : 0
+    const startX = center - (titleWidth + accentWidth) / 2
+    canvas.text(title, startX, y + 26, 28, fonts.regular, COLORS.ink, { spacing: 0.04 })
+    if (accent) {
+      canvas.text(` ${accent}`, startX + titleWidth, y + 24, 16, fonts.light, COLORS.inkSoft)
+    }
+  } else {
+    const title = accent ? `${model.title} ` : model.title
+    const titleWidth =
+      canvas.width(title, 34, fonts.serif) + (accent ? canvas.width(accent, 34, fonts.serifItalic) : 0)
+    canvas.text(title, center - titleWidth / 2, y + 30, 34, fonts.serif, COLORS.ink)
+    if (accent) {
+      canvas.text(
+        accent,
+        center - titleWidth / 2 + canvas.width(title, 34, fonts.serif),
+        y + 30,
+        34,
+        fonts.serifItalic,
+        COLORS.gold
+      )
+    }
+  }
+  y += isOther ? 30 : 34
+
+  const ornamentY = y + 22 + 11
+  canvas.hLine(LEFT + 40, center - (isOther ? 10 : 24), ornamentY, COLORS.sand)
+  canvas.hLine(center + (isOther ? 10 : 24), RIGHT - 40, ornamentY, COLORS.sand)
+  if (!isOther) canvas.fern(center, ornamentY, 22)
+  return ornamentY + 11 + 26
 }
 
-function truncate(text: string, max: number) {
-  const safe = sanitizePdfText(text)
-  return safe.length <= max ? safe : `${safe.slice(0, max - 1)}…`
+function drawParties(canvas: Canvas, model: InvoiceDocumentModel, top: number): number {
+  const { fonts } = canvas
+  const columnWidth = (CONTENT_W - 36) / 2
+  const rightX = LEFT + columnWidth + 36
+
+  drawLabel(canvas, "Facturé à", LEFT, top)
+  const nameLines = canvas.wrap(model.client.name, 22, fonts.serifMedium, columnWidth)
+  let leftY = top + 21
+  for (const line of nameLines) {
+    canvas.text(line, LEFT, leftY + 20, 22, fonts.serifMedium, COLORS.ink)
+    leftY += 26
+  }
+  leftY += 8
+  for (const detail of model.client.lines) {
+    for (const line of canvas.wrap(detail, 11.5, fonts.light, columnWidth)) {
+      canvas.text(line, LEFT, leftY + 12, 11.5, fonts.light, COLORS.inkSoft)
+      leftY += 19
+    }
+  }
+
+  drawLabel(canvas, "Facture", rightX, top)
+  const meta: Array<[string, string]> = [
+    ["N°", model.number],
+    ["Émise le", model.issuedLabel],
+    ["Échéance", model.dueLabel],
+  ]
+  let rightY = top + 21
+  for (const [label, value] of meta) {
+    canvas.text(label.toUpperCase(), rightX, rightY + 10, 9, fonts.light, COLORS.inkMuted, { spacing: 0.14 })
+    canvas.text(value, RIGHT, rightY + 11, 11.5, fonts.regular, COLORS.ink, { align: "right" })
+    rightY += 22
+  }
+
+  return Math.max(leftY, rightY)
 }
 
-async function embedDomainLogo(doc: PDFDocument) {
+const COLUMNS = { qty: 455, unit: 590, total: RIGHT, labelWidth: 330 }
+
+function drawTableHeader(canvas: Canvas, top: number): number {
+  const { fonts } = canvas
+  const options = { spacing: 0.22 }
+  canvas.text("DÉSIGNATION", LEFT, top + 9, 9, fonts.light, COLORS.inkMuted, options)
+  canvas.text("QTÉ", COLUMNS.qty, top + 9, 9, fonts.light, COLORS.inkMuted, { ...options, align: "right" })
+  canvas.text("PRIX UNITAIRE", COLUMNS.unit, top + 9, 9, fonts.light, COLORS.inkMuted, { ...options, align: "right" })
+  canvas.text("MONTANT TTC", COLUMNS.total, top + 9, 9, fonts.light, COLORS.inkMuted, { ...options, align: "right" })
+  canvas.hLine(LEFT, RIGHT, top + 22, COLORS.sand)
+  return top + 23
+}
+
+function measureRow(canvas: Canvas, line: InvoiceDocumentModel["lines"][number]): number {
+  const labelLines = canvas.wrap(line.label || "—", 12.5, canvas.fonts.regular, COLUMNS.labelWidth)
+  const periodLines = line.periodLabel
+    ? canvas.wrap(line.periodLabel, 10.5, canvas.fonts.light, COLUMNS.labelWidth)
+    : []
+  const descLines = line.description
+    ? canvas.wrap(line.description, 10.5, canvas.fonts.light, COLUMNS.labelWidth)
+    : []
+  return (
+    13 +
+    labelLines.length * 17 +
+    (periodLines.length ? 3 + periodLines.length * 15 : 0) +
+    (descLines.length ? 3 + descLines.length * 15 : 0) +
+    13
+  )
+}
+
+function drawRow(canvas: Canvas, line: InvoiceDocumentModel["lines"][number], top: number): number {
+  const { fonts } = canvas
+  const color = line.isDiscount ? COLORS.discount : COLORS.ink
+  const labelLines = canvas.wrap(line.label || "—", 12.5, fonts.regular, COLUMNS.labelWidth)
+  let y = top + 13
+  const firstBaseline = y + 12
+  for (const labelLine of labelLines) {
+    canvas.text(labelLine, LEFT, y + 12, 12.5, fonts.regular, color)
+    y += 17
+  }
+  if (line.periodLabel) {
+    y += 3
+    for (const periodLine of canvas.wrap(line.periodLabel, 10.5, fonts.light, COLUMNS.labelWidth)) {
+      canvas.text(periodLine, LEFT, y + 11, 10.5, fonts.light, COLORS.inkSoft)
+      y += 15
+    }
+  }
+  if (line.description) {
+    y += 3
+    for (const descLine of canvas.wrap(line.description, 10.5, fonts.light, COLUMNS.labelWidth)) {
+      canvas.text(descLine, LEFT, y + 11, 10.5, fonts.light, COLORS.inkMuted)
+      y += 15
+    }
+  }
+  const numColor = line.isDiscount ? COLORS.discount : COLORS.ink
+  canvas.text(String(line.quantity), COLUMNS.qty, firstBaseline, 12.5, fonts.light, numColor, { align: "right" })
+  canvas.text(formatEuroDocument(line.unitPrice), COLUMNS.unit, firstBaseline, 12.5, fonts.light, numColor, {
+    align: "right",
+  })
+  canvas.text(formatEuroDocument(line.total), COLUMNS.total, firstBaseline, 12.5, fonts.light, numColor, {
+    align: "right",
+  })
+  y += 13
+  canvas.hLine(LEFT, RIGHT, y, COLORS.sandLight)
+  return y + 1
+}
+
+function measureBottom(model: InvoiceDocumentModel): number {
+  return (model.vatRate > 0 ? 56 : 0) + 8 + 42
+}
+
+function drawBottom(canvas: Canvas, model: InvoiceDocumentModel, top: number): number {
+  const { fonts } = canvas
+  const totalsLeft = RIGHT - 240
+  let y = top
+
+  if (model.vatRate > 0) {
+    for (const [label, value] of [
+      ["Total HT", model.amountHt],
+      [`TVA ${model.vatRate} %`, model.vatAmount],
+    ] as const) {
+      canvas.text(label, totalsLeft, y + 5 + 12, 12, fonts.light, COLORS.inkSoft)
+      canvas.text(formatEuroDocument(value), RIGHT, y + 5 + 12, 12, fonts.light, COLORS.inkSoft, { align: "right" })
+      y += 28
+    }
+  }
+  y += 8
+  canvas.rect(totalsLeft, y, 240, 42, COLORS.cream, COLORS.sand)
+  canvas.text(model.vatRate > 0 ? "TOTAL TTC" : "TOTAL", totalsLeft + 14, y + 26, 9, fonts.light, COLORS.gold, {
+    spacing: 0.2,
+  })
+  canvas.text(formatEuroDocument(model.amountTtc), RIGHT - 14, y + 28, 22, fonts.serifMedium, COLORS.ink, {
+    align: "right",
+  })
+  return top + measureBottom(model)
+}
+
+function paymentColumns(model: InvoiceDocumentModel) {
+  const columnWidth = model.bank ? (CONTENT_W - 28) / 2 : CONTENT_W
+  return { columnWidth, rightX: LEFT + columnWidth + 28 }
+}
+
+function measurePayment(canvas: Canvas, model: InvoiceDocumentModel): number {
+  const { columnWidth } = paymentColumns(model)
+  const textLines = canvas.wrap(model.paymentText, 11, canvas.fonts.light, columnWidth).length
+  const bankLines = model.bank ? 2 : 0
+  return 36 + 20 + Math.max(textLines, bankLines + (model.bank ? 1 : 0)) * 18.7 + (model.bank ? 19 : 0)
+}
+
+function drawPayment(canvas: Canvas, model: InvoiceDocumentModel, top: number): number {
+  const { fonts } = canvas
+  const { columnWidth, rightX } = paymentColumns(model)
+  const lineTop = top + 36
+  canvas.hLine(LEFT, RIGHT, lineTop, COLORS.sandLight)
+  const contentTop = lineTop + 20
+
+  let y = contentTop
+  for (const line of canvas.wrap(model.paymentText, 11, fonts.light, columnWidth)) {
+    canvas.text(line, LEFT, y + 12, 11, fonts.light, COLORS.inkSoft)
+    y += 18.7
+  }
+
+  if (model.bank) {
+    drawLabel(canvas, "Coordonnées bancaires", rightX, contentTop)
+    canvas.text(model.bank.iban, rightX, contentTop + 19 + 12, 11, fonts.regular, COLORS.ink, { spacing: 0.06 })
+    const bankLine = [model.bank.bic ? `BIC ${model.bank.bic}` : null, model.bank.holder].filter(Boolean).join(" · ")
+    canvas.text(bankLine, rightX, contentTop + 19 + 18.7 + 12, 11, fonts.light, COLORS.inkSoft)
+    y = Math.max(y, contentTop + 19 + 2 * 18.7)
+  }
+  return y
+}
+
+function drawThanks(canvas: Canvas, model: InvoiceDocumentModel, top: number) {
+  const { fonts } = canvas
+  const center = PAGE_W / 2
+  const isOther = model.occasion === "other"
+  canvas.hLine(center - 32, center + 32, top, COLORS.sand)
+  let y = top + 19
+  if (model.thanks.message) {
+    if (isOther) {
+      canvas.text(model.thanks.message, center, y + 13, 13, fonts.light, COLORS.inkSoft, {
+        align: "center",
+        spacing: 0.04,
+      })
+      y += 18 + 6
+    } else {
+      canvas.text(model.thanks.message, center, y + 18, 19, fonts.serifItalic, COLORS.inkSoft, { align: "center" })
+      y += 23 + 6
+    }
+  }
+  if (model.thanks.signature) {
+    canvas.text(model.thanks.signature, center, y + (isOther ? 16 : 20), isOther ? 18 : 22, fonts.serif, COLORS.gold, {
+      align: "center",
+    })
+  }
+}
+
+/** Dessine le pied de page et renvoie sa position haute (px). */
+function drawFooter(canvas: Canvas, model: InvoiceDocumentModel): number {
+  const { fonts } = canvas
+  const rows: Array<{ text: string; size: number; height: number }> = []
+  for (const line of canvas.wrap(model.issuer.footerLine, 9, fonts.light, CONTENT_W)) {
+    rows.push({ text: line, size: 9, height: 15.3 })
+  }
+  for (const legal of model.legalLines) {
+    for (const line of canvas.wrap(legal, 8.5, fonts.light, CONTENT_W)) {
+      rows.push({ text: line, size: 8.5, height: 14.5 })
+    }
+  }
+  const totalHeight = rows.reduce((sum, row) => sum + row.height, 0)
+  let y = PAGE_H - BOTTOM_PADDING - totalHeight
+  const top = y
+  for (const row of rows) {
+    canvas.text(row.text, PAGE_W / 2, y + row.size + 2, row.size, fonts.light, COLORS.inkMuted, {
+      align: "center",
+      spacing: 0.04,
+    })
+    y += row.height
+  }
+  return top
+}
+
+function drawLabel(canvas: Canvas, label: string, x: number, top: number) {
+  canvas.text(label.toUpperCase(), x, top + 8, 9, canvas.fonts.light, COLORS.gold, { spacing: 0.26 })
+}
+
+async function embedFont(doc: PDFDocument, file: string) {
+  const bytes = await readFile(path.join(FONT_DIR, file))
+  return doc.embedFont(bytes, { subset: true })
+}
+
+async function embedLogo(doc: PDFDocument) {
   try {
-    const bytes = await readFile(LOGO_PATH)
-    return await doc.embedPng(bytes)
+    return await doc.embedPng(await readFile(LOGO_PATH))
   } catch {
     return null
   }
 }
 
-function formatFrenchDate(iso: string) {
-  const key = iso.slice(0, 10)
-  if (!/^\d{4}-\d{2}-\d{2}$/.test(key)) return iso
-  return new Intl.DateTimeFormat("fr-FR", {
-    day: "numeric",
-    month: "long",
-    year: "numeric",
-  }).format(new Date(`${key}T12:00:00`))
+function sanitize(text: string) {
+  return text
+    .normalize("NFC")
+    .replace(/[\u202f\u2009]/g, "\u00a0")
+    .replace(/[\u200b\ufeff]/g, "")
+    .replace(/\t/g, " ")
+}
+
+function hex(value: string): RGB {
+  const normalized = value.replace("#", "")
+  return rgb(
+    Number.parseInt(normalized.slice(0, 2), 16) / 255,
+    Number.parseInt(normalized.slice(2, 4), 16) / 255,
+    Number.parseInt(normalized.slice(4, 6), 16) / 255
+  )
 }

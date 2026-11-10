@@ -2,7 +2,7 @@ import { NextResponse } from "next/server"
 import { gateInternalToolAccess } from "@/lib/auth/internal-session"
 import { generateInvoicesForWeddings } from "@/lib/invoice-generate"
 import { buildIssuerFromSettings } from "@/lib/invoice-issuer"
-import type { InvoiceParty, InvoiceType } from "@/lib/invoice-types"
+import type { InvoiceType } from "@/lib/invoice-types"
 import { getWorkspaceSettings } from "@/lib/workspace-settings-store"
 
 export async function POST(request: Request) {
@@ -13,16 +13,13 @@ export async function POST(request: Request) {
     const body = (await request.json()) as {
       types?: InvoiceType[]
       weddingIds?: number[]
-      issuer?: InvoiceParty
       vatRate?: number
       dueInDays?: number
     }
 
     const settings = await getWorkspaceSettings()
     const template = settings.invoiceTemplate
-    const issuer = body.issuer?.name && body.issuer.email
-      ? body.issuer
-      : buildIssuerFromSettings(settings)
+    const issuer = buildIssuerFromSettings(settings)
 
     if (!issuer.name || !issuer.email) {
       return NextResponse.json(

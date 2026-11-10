@@ -81,8 +81,13 @@ export function middleware(request: NextRequest) {
     return unauthenticatedResponse(request)
   }
 
+  // Ne renvoyer loin de /login que si l’access token est encore valide.
+  // Sinon boucle : keeper → /login → middleware → / → keeper…
   if (pathname.startsWith("/login")) {
-    return NextResponse.redirect(new URL("/", request.url))
+    if (!isAccessTokenExpired(session)) {
+      return NextResponse.redirect(new URL("/", request.url))
+    }
+    return NextResponse.next()
   }
 
   return NextResponse.next()

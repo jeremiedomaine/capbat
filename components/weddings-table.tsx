@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react"
 import Link from "next/link"
-import { CalendarPlus, Loader2, Pencil } from "lucide-react"
+import { CalendarPlus, Loader2, Pencil, Search } from "lucide-react"
 import { toast } from "sonner"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
@@ -43,6 +43,11 @@ import {
 import { EmptyState } from "@/components/empty-state"
 import { validateEditWeddingInput } from "@/lib/form-validation"
 import {
+  BOOKING_SOURCE_LABELS,
+  getBookingSourceBadgeClass,
+  type BookingSource,
+} from "@/lib/booking-source"
+import {
   EVENT_TYPE_LABELS,
   getEventTypeBadgeClass,
   isEventType,
@@ -59,9 +64,13 @@ import {
 } from "@/components/ui/select"
 import {
   extractEventYears,
+  formatEventDateFr,
+  getTodayCalendarIsoKey,
+  groupEventsByMonth,
   isUpcomingEvent,
   pickDefaultSeasonYear,
   getEventYear,
+  resolveEventDateKey,
 } from "@/lib/event-dates"
 
 type WeddingsTableMode = "dashboard" | "list"
@@ -73,11 +82,15 @@ type WeddingsTableProps = {
 type WeddingRow = {
   id: number
   eventType: EventType
+  bookingSource?: BookingSource
+  eventName?: string
   couple: string
   contactName: string
   email: string
   phone: string
   eventDate: string
+  stayArrivalDate?: string
+  stayDepartureDate?: string
   deposit: { amount: string; status: PaymentStatus }
   balance: { amount: string; status: PaymentStatus }
   activeAutomationCount?: number
@@ -92,6 +105,8 @@ export function WeddingsTable({ mode = "dashboard" }: WeddingsTableProps) {
   const [rows, setRows] = useState<WeddingRow[]>([])
   const [loading, setLoading] = useState(true)
   const [selectedYear, setSelectedYear] = useState(() => new Date().getFullYear())
+  const [query, setQuery] = useState("")
+  const [typeFilter, setTypeFilter] = useState<EventType | "all">("all")
   const [editingRow, setEditingRow] = useState<WeddingRow | null>(null)
   const [editEventType, setEditEventType] = useState<EventType>("wedding")
   const [editCouple, setEditCouple] = useState("")
@@ -164,11 +179,49 @@ export function WeddingsTable({ mode = "dashboard" }: WeddingsTableProps) {
       filtered = rows.filter((row) => isUpcomingEvent(row.eventDate))
     } else {
       filtered = rows.filter((row) => getEventYear(row.eventDate) === selectedYear)
+      if (typeFilter !== "all") {
+        filtered = filtered.filter((row) => (row.eventType ?? "wedding") === typeFilter)
+      }
+      const q = query.trim().toLowerCase()
+      if (q) {
+        filtered = filtered.filter((row) => {
+          const haystack = [
+            row.couple,
+            row.eventName,
+            row.contactName,
+            row.email,
+            row.phone,
+          ]
+            .filter(Boolean)
+            .join(" ")
+            .toLowerCase()
+          return haystack.includes(q)
+        })
+      }
     }
     return [...filtered].sort((a, b) => a.eventDate.localeCompare(b.eventDate))
-  }, [rows, mode, selectedYear])
+  }, [rows, mode, selectedYear, typeFilter, query])
 
   const sortedRows = displayRows
+
+  const monthGroups = useMemo(
+    () => (mode === "list" ? groupEventsByMonth(sortedRows) : []),
+    [mode, sortedRows]
+  )
+
+  const listStats = useMemo(() => {
+    if (mode !== "list") return null
+    const today = getTodayCalendarIsoKey()
+    let upcoming = 0
+    let past = 0
+    let unpaid = 0
+    for (const row of sortedRows) {
+      if (isUpcomingEvent(row.eventDate, today)) upcoming += 1
+      else past += 1
+      if (row.deposit.status !== "paid" || row.balance.status !== "paid") unpaid += 1
+    }
+    return { upcoming, past, unpaid }
+  }, [mode, sortedRows])
 
   const updatePaymentStatus = async (
     weddingId: number,
@@ -206,15 +259,21 @@ export function WeddingsTable({ mode = "dashboard" }: WeddingsTableProps) {
 
   const showEmpty = !loading && !loadError && sortedRows.length === 0
   const hasAnyEvents = rows.length > 0
+  const hasActiveListFilters =
+    mode === "list" && (query.trim() !== "" || typeFilter !== "all")
   const emptyTitle =
     mode === "list" && hasAnyEvents
-      ? `Aucun événement en ${selectedYear}`
+      ? hasActiveListFilters
+        ? "Aucun résultat"
+        : `Aucun événement en ${selectedYear}`
       : mode === "dashboard"
         ? "Aucun événement à venir"
         : "Aucun événement enregistré"
   const emptyDescription =
     mode === "list" && hasAnyEvents
-      ? "Changez d’année pour consulter une autre saison, ou ajoutez un événement sur cette période."
+      ? hasActiveListFilters
+        ? "Modifiez la recherche ou le type d’événement pour élargir la liste."
+        : "Changez d’année pour consulter une autre saison, ou ajoutez un événement sur cette période."
       : mode === "dashboard"
         ? "Les événements passés restent visibles dans la liste complète, filtrable par année."
         : "Ajoutez votre premier événement pour voir le planning, les encaissements et les relances automatiques ici."
@@ -225,16 +284,18 @@ export function WeddingsTable({ mode = "dashboard" }: WeddingsTableProps) {
         : `${sortedRows.length} événement${sortedRows.length > 1 ? "s" : ""} à venir`
       : loading
         ? "Chargement..."
-        : `${sortedRows.length} événement${sortedRows.length > 1 ? "s" : ""} en ${selectedYear}`
+        : listStats
+          ? `${sortedRows.length} événement${sortedRows.length > 1 ? "s" : ""} · ${listStats.upcoming} à venir · ${listStats.unpaid} paiement${listStats.unpaid > 1 ? "s" : ""} en cours`
+          : `${sortedRows.length} événement${sortedRows.length > 1 ? "s" : ""} en ${selectedYear}`
 
   return (
     <>
       <Card className="bg-white border-gray-100 shadow-sm">
-        <CardHeader className="px-6 pt-6 pb-4 border-b border-gray-50">
+        <CardHeader className="px-6 pt-6 pb-4 border-b border-gray-50 space-y-4">
           <div className="flex items-center justify-between gap-4">
             <div>
               <CardTitle className="text-base font-semibold text-gray-900">
-                {mode === "dashboard" ? "Prochains événements" : "Saison"}
+                {mode === "dashboard" ? "Prochains événements" : `Saison ${selectedYear}`}
               </CardTitle>
               <p className="text-sm text-gray-400 mt-0.5">{subtitle}</p>
             </div>
@@ -263,6 +324,49 @@ export function WeddingsTable({ mode = "dashboard" }: WeddingsTableProps) {
               </Badge>
             )}
           </div>
+
+          {mode === "list" ? (
+            <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
+              <div className="relative max-w-sm flex-1">
+                <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-400" />
+                <Input
+                  className="pl-9 bg-white"
+                  placeholder="Rechercher un couple, contact, e-mail…"
+                  value={query}
+                  onChange={(e) => setQuery(e.target.value)}
+                />
+              </div>
+              <Select
+                value={typeFilter}
+                onValueChange={(value) =>
+                  setTypeFilter(value === "all" ? "all" : (value as EventType))
+                }
+              >
+                <SelectTrigger className="w-full sm:w-[180px] bg-white">
+                  <SelectValue placeholder="Type" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">Tous les types</SelectItem>
+                  <SelectItem value="wedding">Mariages</SelectItem>
+                  <SelectItem value="gite">Gîtes</SelectItem>
+                  <SelectItem value="other">Autres</SelectItem>
+                </SelectContent>
+              </Select>
+              {hasActiveListFilters ? (
+                <Button
+                  type="button"
+                  variant="ghost"
+                  className="text-gray-500"
+                  onClick={() => {
+                    setQuery("")
+                    setTypeFilter("all")
+                  }}
+                >
+                  Réinitialiser
+                </Button>
+              ) : null}
+            </div>
+          ) : null}
         </CardHeader>
         <CardContent className="p-0">
           {loadError ? (
@@ -316,119 +420,84 @@ export function WeddingsTable({ mode = "dashboard" }: WeddingsTableProps) {
           ) : null}
 
           {!loading && !showEmpty && !loadError ? (
-            <Table>
-              <TableHeader>
-                <TableRow className="border-gray-50 hover:bg-transparent">
-                  <TableHead className="px-6 py-3.5 text-xs font-medium text-gray-400 uppercase tracking-wider">
-                    Événement
-                  </TableHead>
-                  <TableHead className="px-4 py-3.5 text-xs font-medium text-gray-400 uppercase tracking-wider">
-                    Acompte
-                  </TableHead>
-                  <TableHead className="px-4 py-3.5 text-xs font-medium text-gray-400 uppercase tracking-wider">
-                    Solde
-                  </TableHead>
-                  <TableHead className="px-4 py-3.5 text-xs font-medium text-gray-400 uppercase tracking-wider">
-                    Relances
-                  </TableHead>
-                  <TableHead className="px-6 py-3.5 text-xs font-medium text-gray-400 uppercase tracking-wider">
-                    Dernière Activité
-                  </TableHead>
-                  <TableHead className="px-6 py-3.5 text-xs font-medium text-gray-400 uppercase tracking-wider text-right">
-                    Actions
-                  </TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {sortedRows.map((row, idx) => (
-                  <TableRow
-                    key={row.id}
-                    className={`border-gray-50 transition-colors hover:bg-gray-50/60 ${
-                      idx !== sortedRows.length - 1 ? "border-b" : ""
-                    }`}
-                  >
-                    <TableCell className="px-6 py-4">
-                      <div className="flex items-center gap-2 mb-1">
-                        <Badge
-                          variant="outline"
-                          className={getEventTypeBadgeClass(row.eventType ?? "wedding")}
-                        >
-                          {EVENT_TYPE_LABELS[row.eventType ?? "wedding"]}
-                        </Badge>
-                      </div>
-                      <p className="font-semibold text-gray-900 text-sm">
-                        <Link
-                          href={`/evenements/${row.id}`}
-                          className="hover:text-blue-600 hover:underline underline-offset-2"
-                        >
-                          {row.couple}
-                        </Link>
-                      </p>
-                      <p className="text-xs text-gray-500 mt-0.5">
-                        Contact: {row.contactName || "—"}
-                      </p>
-                      <p className="text-xs text-gray-500 mt-0.5">{row.email || "—"}</p>
-                      <p className="text-xs text-gray-500">{row.phone || "—"}</p>
-                      <p className="text-xs text-gray-400 mt-0.5">{formatDate(row.eventDate)}</p>
-                    </TableCell>
-
-                    <TableCell className="px-4 py-4">
-                      <div className="flex items-center gap-2">
-                        <span className="text-sm text-gray-700 font-medium">
-                          {row.deposit.amount}
-                        </span>
-                        <StatusBadge
-                          status={row.deposit.status}
-                          options={["pending", "paid"]}
-                          mode={mode}
-                          disabled={Boolean(pendingOp?.rowId === row.id && pendingOp.kind === "deposit")}
-                          onSelect={(status) => updatePaymentStatus(row.id, "deposit", status)}
-                        />
-                      </div>
-                    </TableCell>
-
-                    <TableCell className="px-4 py-4">
-                      <div className="flex items-center gap-2">
-                        <span className="text-sm text-gray-700 font-medium">
-                          {row.balance.amount}
-                        </span>
-                        <StatusBadge
-                          status={row.balance.status}
-                          options={["pending", "paid", "to_collect"]}
-                          mode={mode}
-                          disabled={Boolean(pendingOp?.rowId === row.id && pendingOp.kind === "balance")}
-                          onSelect={(status) => updatePaymentStatus(row.id, "balance", status)}
-                        />
-                      </div>
-                    </TableCell>
-
-                    <TableCell className="px-4 py-4">
-                      <Link
-                        href={`/evenements/${row.id}`}
-                        className="text-sm font-medium text-gray-700 hover:text-blue-600 hover:underline underline-offset-2"
-                      >
-                        {row.activeAutomationCount ?? 0} active{(row.activeAutomationCount ?? 0) !== 1 ? "s" : ""}
-                      </Link>
-                    </TableCell>
-
-                    <TableCell className="px-6 py-4">
-                      <span className="text-sm text-gray-400">{row.lastActivity}</span>
-                    </TableCell>
-                    <TableCell className="px-6 py-4 text-right">
-                      <Button
-                        variant="outline"
-                        size="icon"
-                        className="w-8 h-8"
-                        onClick={() => openEditDialog(row)}
-                        aria-label={`Modifier ${row.couple}`}
-                      >
-                        <Pencil className="w-4 h-4" />
-                      </Button>
-                    </TableCell>
+            mode === "list" ? (
+              <Table>
+                <TableHeader>
+                  <TableRow className="border-gray-50 hover:bg-transparent">
+                    <TableHead className="px-6 py-3.5 text-xs font-medium text-gray-400 uppercase tracking-wider w-[120px]">
+                      Date
+                    </TableHead>
+                    <TableHead className="px-4 py-3.5 text-xs font-medium text-gray-400 uppercase tracking-wider">
+                      Événement
+                    </TableHead>
+                    <TableHead className="px-4 py-3.5 text-xs font-medium text-gray-400 uppercase tracking-wider">
+                      Acompte
+                    </TableHead>
+                    <TableHead className="px-4 py-3.5 text-xs font-medium text-gray-400 uppercase tracking-wider">
+                      Solde
+                    </TableHead>
+                    <TableHead className="px-4 py-3.5 text-xs font-medium text-gray-400 uppercase tracking-wider">
+                      Relances
+                    </TableHead>
+                    <TableHead className="px-6 py-3.5 text-xs font-medium text-gray-400 uppercase tracking-wider text-right">
+                      Actions
+                    </TableHead>
                   </TableRow>
-                ))}
-              </TableBody>
-            </Table>
+                </TableHeader>
+                <TableBody>
+                  {monthGroups.map((group) => (
+                    <MonthSection
+                      key={group.monthKey}
+                      label={group.monthLabel}
+                      count={group.events.length}
+                      events={group.events}
+                      mode={mode}
+                      pendingOp={pendingOp}
+                      onUpdatePayment={updatePaymentStatus}
+                      onEdit={openEditDialog}
+                    />
+                  ))}
+                </TableBody>
+              </Table>
+            ) : (
+              <Table>
+                <TableHeader>
+                  <TableRow className="border-gray-50 hover:bg-transparent">
+                    <TableHead className="px-6 py-3.5 text-xs font-medium text-gray-400 uppercase tracking-wider">
+                      Événement
+                    </TableHead>
+                    <TableHead className="px-4 py-3.5 text-xs font-medium text-gray-400 uppercase tracking-wider">
+                      Acompte
+                    </TableHead>
+                    <TableHead className="px-4 py-3.5 text-xs font-medium text-gray-400 uppercase tracking-wider">
+                      Solde
+                    </TableHead>
+                    <TableHead className="px-4 py-3.5 text-xs font-medium text-gray-400 uppercase tracking-wider">
+                      Relances
+                    </TableHead>
+                    <TableHead className="px-6 py-3.5 text-xs font-medium text-gray-400 uppercase tracking-wider">
+                      Dernière Activité
+                    </TableHead>
+                    <TableHead className="px-6 py-3.5 text-xs font-medium text-gray-400 uppercase tracking-wider text-right">
+                      Actions
+                    </TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {sortedRows.map((row, idx) => (
+                    <DashboardEventRow
+                      key={row.id}
+                      row={row}
+                      isLast={idx === sortedRows.length - 1}
+                      mode={mode}
+                      pendingOp={pendingOp}
+                      onUpdatePayment={updatePaymentStatus}
+                      onEdit={openEditDialog}
+                    />
+                  ))}
+                </TableBody>
+              </Table>
+            )
           ) : null}
         </CardContent>
       </Card>
@@ -682,6 +751,269 @@ export function WeddingsTable({ mode = "dashboard" }: WeddingsTableProps) {
   }
 }
 
+type EventRowActions = {
+  mode: WeddingsTableMode
+  pendingOp: PendingOp
+  onUpdatePayment: (
+    weddingId: number,
+    field: "deposit" | "balance",
+    status: PaymentStatus
+  ) => void
+  onEdit: (row: WeddingRow) => void
+}
+
+function MonthSection({
+  label,
+  count,
+  events,
+  mode,
+  pendingOp,
+  onUpdatePayment,
+  onEdit,
+}: {
+  label: string
+  count: number
+  events: WeddingRow[]
+} & EventRowActions) {
+  return (
+    <>
+      <TableRow className="hover:bg-transparent border-0">
+        <TableCell
+          colSpan={6}
+          className="px-6 py-2.5 bg-slate-50/90 border-y border-slate-100"
+        >
+          <div className="flex items-center justify-between gap-3">
+            <p className="text-sm font-semibold text-slate-800">{label}</p>
+            <p className="text-xs text-slate-500">
+              {count} événement{count > 1 ? "s" : ""}
+            </p>
+          </div>
+        </TableCell>
+      </TableRow>
+      {events.map((row) => (
+        <ListEventRow
+          key={row.id}
+          row={row}
+          mode={mode}
+          pendingOp={pendingOp}
+          onUpdatePayment={onUpdatePayment}
+          onEdit={onEdit}
+        />
+      ))}
+    </>
+  )
+}
+
+function ListEventRow({
+  row,
+  mode,
+  pendingOp,
+  onUpdatePayment,
+  onEdit,
+}: { row: WeddingRow } & EventRowActions) {
+  const past = !isUpcomingEvent(row.eventDate)
+  const dateKey = resolveEventDateKey(row.eventDate)
+  const dayLabel = dateKey
+    ? new Intl.DateTimeFormat("fr-FR", { day: "numeric", weekday: "short" }).format(
+        new Date(
+          Number(dateKey.slice(0, 4)),
+          Number(dateKey.slice(5, 7)) - 1,
+          Number(dateKey.slice(8, 10))
+        )
+      )
+    : "—"
+  const stayLabel =
+    row.stayArrivalDate && row.stayDepartureDate
+      ? `Séjour ${formatEventDateFr(row.stayArrivalDate)} → ${formatEventDateFr(row.stayDepartureDate)}`
+      : null
+
+  return (
+    <TableRow
+      className={`border-b border-gray-50 transition-colors hover:bg-gray-50/70 ${
+        past ? "bg-gray-50/40" : ""
+      }`}
+    >
+      <TableCell className="px-6 py-4 align-top">
+        <div className={past ? "text-gray-400" : "text-gray-900"}>
+          <p className="text-sm font-semibold capitalize">{dayLabel}</p>
+          <p className="text-xs text-gray-400 mt-0.5">{formatDate(row.eventDate)}</p>
+          {past ? (
+            <Badge variant="outline" className="mt-2 text-[10px] text-gray-500 border-gray-200">
+              Passé
+            </Badge>
+          ) : null}
+        </div>
+      </TableCell>
+      <TableCell className="px-4 py-4">
+        <div className="flex flex-wrap items-center gap-2 mb-1">
+          <Badge
+            variant="outline"
+            className={getEventTypeBadgeClass(row.eventType ?? "wedding")}
+          >
+            {EVENT_TYPE_LABELS[row.eventType ?? "wedding"]}
+          </Badge>
+          {row.bookingSource === "platform" ? (
+            <Badge
+              variant="outline"
+              className={getBookingSourceBadgeClass("platform")}
+            >
+              {BOOKING_SOURCE_LABELS.platform}
+            </Badge>
+          ) : null}
+        </div>
+        <p className={`font-semibold text-sm ${past ? "text-gray-600" : "text-gray-900"}`}>
+          <Link
+            href={`/evenements/${row.id}`}
+            className="hover:text-blue-600 hover:underline underline-offset-2"
+          >
+            {row.couple}
+          </Link>
+        </p>
+        <p className="text-xs text-gray-500 mt-0.5">
+          Contact : {row.contactName || "—"}
+        </p>
+        {(row.email || row.phone) && (
+          <p className="text-xs text-gray-400 mt-0.5">
+            {[row.email, row.phone].filter(Boolean).join(" · ")}
+          </p>
+        )}
+        {stayLabel ? <p className="text-xs text-gray-400 mt-1">{stayLabel}</p> : null}
+      </TableCell>
+      <TableCell className="px-4 py-4">
+        <div className="flex flex-col gap-1.5 sm:flex-row sm:items-center sm:gap-2">
+          <span className="text-sm text-gray-700 font-medium">{row.deposit.amount}</span>
+          <StatusBadge
+            status={row.deposit.status}
+            options={["pending", "paid"]}
+            mode={mode}
+            disabled={Boolean(pendingOp?.rowId === row.id && pendingOp.kind === "deposit")}
+            onSelect={(status) => onUpdatePayment(row.id, "deposit", status)}
+          />
+        </div>
+      </TableCell>
+      <TableCell className="px-4 py-4">
+        <div className="flex flex-col gap-1.5 sm:flex-row sm:items-center sm:gap-2">
+          <span className="text-sm text-gray-700 font-medium">{row.balance.amount}</span>
+          <StatusBadge
+            status={row.balance.status}
+            options={["pending", "paid", "to_collect"]}
+            mode={mode}
+            disabled={Boolean(pendingOp?.rowId === row.id && pendingOp.kind === "balance")}
+            onSelect={(status) => onUpdatePayment(row.id, "balance", status)}
+          />
+        </div>
+      </TableCell>
+      <TableCell className="px-4 py-4">
+        <Link
+          href={`/evenements/${row.id}`}
+          className="text-sm font-medium text-gray-700 hover:text-blue-600 hover:underline underline-offset-2"
+        >
+          {row.activeAutomationCount ?? 0} active
+          {(row.activeAutomationCount ?? 0) !== 1 ? "s" : ""}
+        </Link>
+      </TableCell>
+      <TableCell className="px-6 py-4 text-right">
+        <Button
+          variant="outline"
+          size="icon"
+          className="w-8 h-8"
+          onClick={() => onEdit(row)}
+          aria-label={`Modifier ${row.couple}`}
+        >
+          <Pencil className="w-4 h-4" />
+        </Button>
+      </TableCell>
+    </TableRow>
+  )
+}
+
+function DashboardEventRow({
+  row,
+  isLast,
+  mode,
+  pendingOp,
+  onUpdatePayment,
+  onEdit,
+}: { row: WeddingRow; isLast: boolean } & EventRowActions) {
+  return (
+    <TableRow
+      className={`border-gray-50 transition-colors hover:bg-gray-50/60 ${
+        !isLast ? "border-b" : ""
+      }`}
+    >
+      <TableCell className="px-6 py-4">
+        <div className="flex items-center gap-2 mb-1">
+          <Badge
+            variant="outline"
+            className={getEventTypeBadgeClass(row.eventType ?? "wedding")}
+          >
+            {EVENT_TYPE_LABELS[row.eventType ?? "wedding"]}
+          </Badge>
+        </div>
+        <p className="font-semibold text-gray-900 text-sm">
+          <Link
+            href={`/evenements/${row.id}`}
+            className="hover:text-blue-600 hover:underline underline-offset-2"
+          >
+            {row.couple}
+          </Link>
+        </p>
+        <p className="text-xs text-gray-500 mt-0.5">Contact: {row.contactName || "—"}</p>
+        <p className="text-xs text-gray-500 mt-0.5">{row.email || "—"}</p>
+        <p className="text-xs text-gray-500">{row.phone || "—"}</p>
+        <p className="text-xs text-gray-400 mt-0.5">{formatDate(row.eventDate)}</p>
+      </TableCell>
+      <TableCell className="px-4 py-4">
+        <div className="flex items-center gap-2">
+          <span className="text-sm text-gray-700 font-medium">{row.deposit.amount}</span>
+          <StatusBadge
+            status={row.deposit.status}
+            options={["pending", "paid"]}
+            mode={mode}
+            disabled={Boolean(pendingOp?.rowId === row.id && pendingOp.kind === "deposit")}
+            onSelect={(status) => onUpdatePayment(row.id, "deposit", status)}
+          />
+        </div>
+      </TableCell>
+      <TableCell className="px-4 py-4">
+        <div className="flex items-center gap-2">
+          <span className="text-sm text-gray-700 font-medium">{row.balance.amount}</span>
+          <StatusBadge
+            status={row.balance.status}
+            options={["pending", "paid", "to_collect"]}
+            mode={mode}
+            disabled={Boolean(pendingOp?.rowId === row.id && pendingOp.kind === "balance")}
+            onSelect={(status) => onUpdatePayment(row.id, "balance", status)}
+          />
+        </div>
+      </TableCell>
+      <TableCell className="px-4 py-4">
+        <Link
+          href={`/evenements/${row.id}`}
+          className="text-sm font-medium text-gray-700 hover:text-blue-600 hover:underline underline-offset-2"
+        >
+          {row.activeAutomationCount ?? 0} active
+          {(row.activeAutomationCount ?? 0) !== 1 ? "s" : ""}
+        </Link>
+      </TableCell>
+      <TableCell className="px-6 py-4">
+        <span className="text-sm text-gray-400">{row.lastActivity}</span>
+      </TableCell>
+      <TableCell className="px-6 py-4 text-right">
+        <Button
+          variant="outline"
+          size="icon"
+          className="w-8 h-8"
+          onClick={() => onEdit(row)}
+          aria-label={`Modifier ${row.couple}`}
+        >
+          <Pencil className="w-4 h-4" />
+        </Button>
+      </TableCell>
+    </TableRow>
+  )
+}
+
 type StatusBadgeProps = {
   status: PaymentStatus
   options: PaymentStatus[]
@@ -733,13 +1065,7 @@ function getStatusClassName(status: PaymentStatus, mode: WeddingsTableMode = "da
 }
 
 function formatDate(value: string) {
-  const parsed = new Date(value)
-  if (Number.isNaN(parsed.getTime())) return value
-  return new Intl.DateTimeFormat("fr-FR", {
-    day: "numeric",
-    month: "long",
-    year: "numeric",
-  }).format(parsed)
+  return formatEventDateFr(value)
 }
 
 function extractNumericAmount(value: string) {

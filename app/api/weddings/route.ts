@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server"
 import { gateInternalToolAccess } from "@/lib/auth/internal-session"
+import { parseBookingSource, supportsCapBatBilling } from "@/lib/booking-source"
 import { isWeddingEventType, parseEventType, requiresContactName } from "@/lib/event-types"
 import { countActiveAutomationsByEventIds, seedDefaultAssignmentsForEvent } from "@/lib/event-automations-store"
 import { generateInvoicesForWeddings } from "@/lib/invoice-generate"
@@ -46,6 +47,8 @@ export async function POST(request: Request) {
       email?: string
       phone?: string
       eventDate?: string
+      stayArrivalDate?: string
+      stayDepartureDate?: string
       depositAmount?: string
       balanceAmount?: string
       autopilot?: boolean
@@ -56,9 +59,12 @@ export async function POST(request: Request) {
       touristTaxStatus?: string
       touristTaxAmount?: string
       touristTaxPaidDate?: string
+      bookingSource?: string
     }
 
     const eventType = parseEventType(body.eventType)
+    const bookingSource = parseBookingSource(body.bookingSource)
+    const canBillInCapBat = supportsCapBatBilling(bookingSource)
     const spouse1Phone = body.spouse1Phone?.trim() ?? ""
     const spouse2Phone = body.spouse2Phone?.trim() ?? ""
     const phone = body.phone?.trim() || spouse1Phone || spouse2Phone
@@ -70,19 +76,19 @@ export async function POST(request: Request) {
       !body.email ||
       !phone ||
       !body.eventDate ||
-      !body.depositAmount ||
-      !body.balanceAmount
+      (canBillInCapBat && (!body.depositAmount || !body.balanceAmount))
     ) {
       return NextResponse.json(
         {
-          error:
-            "Les champs nom de l'événement, libellé tableau, email, téléphone, date, acompte et solde sont obligatoires.",
+          error: canBillInCapBat
+            ? "Les champs nom de l'événement, libellé tableau, email, téléphone, date, acompte et solde sont obligatoires."
+            : "Les champs nom de l'événement, libellé tableau, email, téléphone et date sont obligatoires.",
         },
         { status: 400 }
       )
     }
 
-    if (depositAlreadyPaid && !body.depositPaidDate?.trim()) {
+    if (canBillInCapBat && depositAlreadyPaid && !body.depositPaidDate?.trim()) {
       return NextResponse.json(
         { error: "Indiquez la date de versement de l'acompte." },
         { status: 400 }
@@ -109,6 +115,7 @@ export async function POST(request: Request) {
     const activateDefaults = body.autopilot ?? true
     const created = await createWedding({
       eventType,
+      bookingSource,
       eventName: body.eventName,
       spouse1FirstName: body.spouse1FirstName ?? "",
       spouse1LastName: body.spouse1LastName ?? "",
@@ -123,15 +130,19 @@ export async function POST(request: Request) {
       email: body.email,
       phone,
       eventDate: body.eventDate,
-      depositAmount: body.depositAmount,
-      balanceAmount: body.balanceAmount,
+      stayArrivalDate: body.stayArrivalDate ?? "",
+      stayDepartureDate: body.stayDepartureDate ?? "",
+      depositAmount: body.depositAmount ?? "0",
+      balanceAmount: body.balanceAmount ?? "0",
       autopilot: activateDefaults,
-      depositAlreadyPaid,
-      depositPaidDate: body.depositPaidDate,
-      depositPaymentMethod: parsePaymentMethod(body.depositPaymentMethod),
-      touristTaxStatus: parseTouristTaxStatus(body.touristTaxStatus),
-      touristTaxAmount: body.touristTaxAmount ?? "",
-      touristTaxPaidDate: body.touristTaxPaidDate ?? "",
+      depositAlreadyPaid: canBillInCapBat ? depositAlreadyPaid : false,
+      depositPaidDate: canBillInCapBat ? body.depositPaidDate : undefined,
+      depositPaymentMethod: canBillInCapBat
+        ? parsePaymentMethod(body.depositPaymentMethod)
+        : "",
+      touristTaxStatus: canBillInCapBat ? parseTouristTaxStatus(body.touristTaxStatus) : "",
+      touristTaxAmount: canBillInCapBat ? (body.touristTaxAmount ?? "") : "",
+      touristTaxPaidDate: canBillInCapBat ? (body.touristTaxPaidDate ?? "") : "",
     })
 
     await seedDefaultAssignmentsForEvent(created.id, created.eventType, activateDefaults)
@@ -139,7 +150,8 @@ export async function POST(request: Request) {
 
     const settings = await getWorkspaceSettings()
     const shouldGenerateInvoices =
-      body.generateInvoices ?? settings.invoiceTemplate.autoGenerateOnEventCreate
+      canBillInCapBat &&
+      (body.generateInvoices ?? settings.invoiceTemplate.autoGenerateOnEventCreate)
 
     let invoicesCreated = 0
     if (shouldGenerateInvoices) {

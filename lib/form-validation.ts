@@ -19,6 +19,8 @@ export function parseEuroInput(raw: string): number | null {
 
 export type NewEventFormInput = {
   eventType?: EventType
+  /** Si true (plateforme Airbnb…), acompte/solde non requis. */
+  skipBillingAmounts?: boolean
   eventName: string
   spouse1FirstName: string
   spouse1LastName: string
@@ -30,6 +32,8 @@ export type NewEventFormInput = {
   email: string
   phone: string
   eventDate: string
+  stayArrivalDate?: string
+  stayDepartureDate?: string
   depositAmount: string
   balanceAmount: string
   depositAlreadyPaid?: boolean
@@ -38,6 +42,7 @@ export type NewEventFormInput = {
 
 export function validateNewEventInput(input: NewEventFormInput): string | null {
   const eventType = input.eventType ?? "wedding"
+  const skipBilling = input.skipBillingAmounts === true
 
   if (!input.eventName.trim()) return "Indiquez le nom de l'événement."
 
@@ -60,14 +65,24 @@ export function validateNewEventInput(input: NewEventFormInput): string | null {
   if (!hasPhone) return "Indiquez au moins un numéro de téléphone."
   if (!input.eventDate.trim()) return "Choisissez une date."
 
-  if (input.depositAlreadyPaid && !(input.depositPaidDate ?? "").trim()) {
+  const arrival = (input.stayArrivalDate ?? "").trim()
+  const departure = (input.stayDepartureDate ?? "").trim()
+  if (!arrival) return "Indiquez la date d'arrivée au logement."
+  if (!departure) return "Indiquez la date de départ du logement."
+  if (departure < arrival) {
+    return "La date de départ doit être après la date d'arrivée."
+  }
+
+  if (!skipBilling && input.depositAlreadyPaid && !(input.depositPaidDate ?? "").trim()) {
     return "Indiquez la date de versement de l'acompte."
   }
 
-  const dep = parseEuroInput(input.depositAmount)
-  const bal = parseEuroInput(input.balanceAmount)
-  if (dep === null) return "Montant d’acompte invalide (nombre positif ou zéro)."
-  if (bal === null) return "Montant de solde invalide (nombre positif ou zéro)."
+  if (!skipBilling) {
+    const dep = parseEuroInput(input.depositAmount)
+    const bal = parseEuroInput(input.balanceAmount)
+    if (dep === null) return "Montant d’acompte invalide (nombre positif ou zéro)."
+    if (bal === null) return "Montant de solde invalide (nombre positif ou zéro)."
+  }
   return null
 }
 
