@@ -120,7 +120,10 @@ export function InvoiceSettingsSheet({ open, onOpenChange, settings, onSaved }: 
             </Field>
           </Section>
 
-          <Section title="Règlement" hint="Sans IBAN, le bloc « Coordonnées bancaires » n'apparaît pas.">
+          <Section
+            title="RIB"
+            hint="À remplir une seule fois : IBAN, BIC et titulaire apparaissent ensuite sur toutes les factures."
+          >
             <Field label="IBAN" className="sm:col-span-2">
               <Input
                 value={template.bankIban}
@@ -129,15 +132,22 @@ export function InvoiceSettingsSheet({ open, onOpenChange, settings, onSaved }: 
               />
             </Field>
             <Field label="BIC">
-              <Input value={template.bankBic} onChange={(e) => patchTemplate({ bankBic: e.target.value })} />
+              <Input
+                value={template.bankBic}
+                placeholder="AGRIFRPP…"
+                onChange={(e) => patchTemplate({ bankBic: e.target.value })}
+              />
             </Field>
             <Field label="Titulaire du compte">
               <Input
                 value={template.bankHolder}
-                placeholder={settings.companyName}
+                placeholder={settings.companyName || "Cap'Bat"}
                 onChange={(e) => patchTemplate({ bankHolder: e.target.value })}
               />
             </Field>
+          </Section>
+
+          <Section title="Échéance & TVA">
             <Field label="Échéance par défaut (jours)">
               <Input
                 type="number"
@@ -154,6 +164,7 @@ export function InvoiceSettingsSheet({ open, onOpenChange, settings, onSaved }: 
                 value={template.defaultVatRate}
                 onChange={(e) => patchTemplate({ defaultVatRate: Math.max(0, Number(e.target.value) || 0) })}
               />
+              <p className="text-xs text-gray-500">Chez Cap&apos;Bat : 10 % sur les prestations.</p>
             </Field>
           </Section>
 
@@ -164,6 +175,7 @@ export function InvoiceSettingsSheet({ open, onOpenChange, settings, onSaved }: 
             <Field label="Message de remerciement" className="sm:col-span-2">
               <Input
                 value={template.thankYouMessage}
+                placeholder="Merci de me confier ce jour si précieux."
                 onChange={(e) => patchTemplate({ thankYouMessage: e.target.value })}
               />
             </Field>
@@ -179,8 +191,12 @@ export function InvoiceSettingsSheet({ open, onOpenChange, settings, onSaved }: 
               <Textarea
                 rows={2}
                 value={template.legalNotice}
+                placeholder="TVA non applicable, art. 293 B du CGI."
                 onChange={(e) => patchTemplate({ legalNotice: e.target.value })}
               />
+              <p className="text-xs text-gray-500">
+                Pas de mention de virement, délai de paiement ni retard — uniquement ce que vous saisissez ici.
+              </p>
             </Field>
             <Field label="Ligne d'acompte" className="sm:col-span-2">
               <Input value={template.depositLabel} onChange={(e) => patchTemplate({ depositLabel: e.target.value })} />
@@ -200,8 +216,10 @@ export function InvoiceSettingsSheet({ open, onOpenChange, settings, onSaved }: 
           <div className="space-y-3">
             <div className="flex items-center justify-between gap-3">
               <div>
-                <h3 className="text-sm font-semibold text-gray-900">Catalogue d&apos;extras</h3>
-                <p className="text-xs text-gray-500">Proposés en un clic sur chaque facture.</p>
+                <h3 className="text-sm font-semibold text-gray-900">Raccourcis (facultatif)</h3>
+                <p className="text-xs text-gray-500">
+                  Aucune suggestion par défaut — ajoutez seulement ce que vous utilisez souvent.
+                </p>
               </div>
               <div className="flex gap-2">
                 <Button type="button" size="sm" variant="outline" onClick={() => addCatalogItem("extra")}>

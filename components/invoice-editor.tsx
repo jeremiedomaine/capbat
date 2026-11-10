@@ -65,6 +65,8 @@ function fromEditableLines(lines: EditableLine[]): InvoiceLineItem[] {
     ...item,
     label: item.label.trim(),
     description: item.description?.trim() || undefined,
+    periodStart: item.periodStart?.trim().slice(0, 10) || undefined,
+    periodEnd: item.periodEnd?.trim().slice(0, 10) || undefined,
   }))
 }
 
@@ -77,7 +79,7 @@ export function InvoiceEditor({ invoiceId }: { invoiceId: string }) {
   const [notes, setNotes] = useState("")
   const [issuedAt, setIssuedAt] = useState("")
   const [dueAt, setDueAt] = useState("")
-  const [vatRate, setVatRate] = useState(20)
+  const [vatRate, setVatRate] = useState(10)
   const [status, setStatus] = useState<InvoiceStatus>("draft")
   const [locked, setLocked] = useState(false)
   const [loading, setLoading] = useState(true)
@@ -164,6 +166,8 @@ export function InvoiceEditor({ invoiceId }: { invoiceId: string }) {
         quantity: 1,
         unitPrice: kind === "discount" ? -100 : 0,
         kind,
+        periodStart: "",
+        periodEnd: "",
       },
     ])
     markDirty()
@@ -172,7 +176,15 @@ export function InvoiceEditor({ invoiceId }: { invoiceId: string }) {
   const addFromCatalog = (item: InvoiceCatalogItem) => {
     setLines((prev) => [
       ...prev,
-      { key: lineKey(), label: item.label, quantity: 1, unitPrice: item.unitPrice, kind: item.kind },
+      {
+        key: lineKey(),
+        label: item.label,
+        quantity: 1,
+        unitPrice: item.unitPrice,
+        kind: item.kind,
+        periodStart: "",
+        periodEnd: "",
+      },
     ])
     markDirty()
   }
@@ -380,7 +392,7 @@ export function InvoiceEditor({ invoiceId }: { invoiceId: string }) {
             <CardHeader>
               <CardTitle>Prestations</CardTitle>
               <CardDescription>
-                Ajoutez les extras de ce mariage depuis le catalogue, ou une ligne libre.
+                Ajoutez les lignes dont vous avez besoin (libellé et montant libres).
               </CardDescription>
             </CardHeader>
             <CardContent className="space-y-4">
@@ -459,6 +471,26 @@ export function InvoiceEditor({ invoiceId }: { invoiceId: string }) {
                             <Trash2 className="w-4 h-4" />
                           </Button>
                         </div>
+                      </div>
+                      <div className="grid grid-cols-2 gap-2">
+                        <label className="space-y-1">
+                          <span className="text-xs text-gray-500">Date de début</span>
+                          <Input
+                            type="date"
+                            value={line.periodStart?.slice(0, 10) ?? ""}
+                            disabled={readOnly}
+                            onChange={(e) => updateLine(line.key, { periodStart: e.target.value })}
+                          />
+                        </label>
+                        <label className="space-y-1">
+                          <span className="text-xs text-gray-500">Date de fin</span>
+                          <Input
+                            type="date"
+                            value={line.periodEnd?.slice(0, 10) ?? ""}
+                            disabled={readOnly}
+                            onChange={(e) => updateLine(line.key, { periodEnd: e.target.value })}
+                          />
+                        </label>
                       </div>
                       <Input
                         value={line.description ?? ""}

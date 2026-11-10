@@ -4,6 +4,7 @@ import type { Wedding } from "@/lib/weddings-store"
 export const AUTOMATION_PREVIEW_SAMPLE_WEDDING: Wedding = {
   id: 0,
   eventType: "wedding",
+  bookingSource: "direct",
   eventName: "Mariage Camille & Jordan",
   spouse1FirstName: "Camille",
   spouse1LastName: "Dupont",
@@ -13,6 +14,8 @@ export const AUTOMATION_PREVIEW_SAMPLE_WEDDING: Wedding = {
   spouse2Phone: "",
   postalAddress: "",
   comments: "",
+  stayArrivalDate: "2026-09-12",
+  stayDepartureDate: "2026-09-16",
   depositPaidDate: "",
   depositPaymentMethod: "",
   balancePaidDate: "",

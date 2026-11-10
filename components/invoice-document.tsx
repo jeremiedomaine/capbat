@@ -32,37 +32,65 @@ const LOGO_SRC = "/logo-domaine.png"
 
 export function InvoiceDocument({ model }: { model: InvoiceDocumentModel }) {
   const hasVat = model.vatRate > 0
+  const isOther = model.occasion === "other"
 
   return (
-    <div className={cn(styles.page, serif.variable, sans.variable)}>
-      {/* eslint-disable-next-line @next/next/no-img-element */}
-      <img className={styles.watermark} src={LOGO_SRC} alt="" />
-
-      <header className={styles.header}>
-        <div className={styles.brand}>
-          {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img src={LOGO_SRC} alt={model.issuer.name} />
-          <div>
-            <div className={cn(styles.serif, styles.brandName)}>{model.issuer.name}</div>
-            {model.issuer.tagline ? <div className={styles.tagline}>{model.issuer.tagline}</div> : null}
-            <div className={styles.address}>
+    <div
+      className={cn(
+        styles.page,
+        isOther && styles.pageOther,
+        serif.variable,
+        sans.variable
+      )}
+    >
+      <header className={styles.brand}>
+        {/* eslint-disable-next-line @next/next/no-img-element */}
+        <img src={LOGO_SRC} alt={model.issuer.name} />
+        <div>
+          <div className={cn(styles.serif, styles.brandName)}>{model.issuer.name}</div>
+          {model.issuer.tagline ? <div className={styles.tagline}>{model.issuer.tagline}</div> : null}
+          {model.issuer.lines.length ? (
+            <div className={styles.brandAddress}>
               {model.issuer.lines.map((line) => (
                 <div key={line}>{line}</div>
               ))}
             </div>
+          ) : null}
+        </div>
+      </header>
+
+      <div className={cn(styles.serif, styles.kind, isOther && styles.kindOther)}>
+        {model.title}
+        {model.titleAccent ? (
+          <>
+            {" "}
+            {isOther ? (
+              <span>{model.titleAccent}</span>
+            ) : (
+              <em>{model.titleAccent}</em>
+            )}
+          </>
+        ) : null}
+      </div>
+
+      <div className={styles.ornament}>
+        <span />
+        {isOther ? <span className={styles.ornamentDot} /> : <FernIcon />}
+        <span />
+      </div>
+
+      <section className={styles.parties}>
+        <div className={styles.infoBlock}>
+          <div className={styles.label}>Facturé à</div>
+          <div className={cn(styles.serif, styles.clientName)}>{model.client.name}</div>
+          <div className={styles.details}>
+            {model.client.lines.map((line) => (
+              <div key={line}>{line}</div>
+            ))}
           </div>
         </div>
-
-        <div className={styles.docTitle}>
-          <div className={cn(styles.serif, styles.kind)}>
-            {model.title}
-            {model.titleAccent ? (
-              <>
-                {" "}
-                <em>{model.titleAccent}</em>
-              </>
-            ) : null}
-          </div>
+        <div className={styles.infoBlock}>
+          <div className={styles.label}>Facture</div>
           <dl className={styles.meta}>
             <dt>N°</dt>
             <dd>{model.number}</dd>
@@ -72,32 +100,6 @@ export function InvoiceDocument({ model }: { model: InvoiceDocumentModel }) {
             <dd>{model.dueLabel}</dd>
           </dl>
         </div>
-      </header>
-
-      <div className={styles.ornament}>
-        <span />
-        <FernIcon />
-        <span />
-      </div>
-
-      <section className={styles.parties}>
-        <div>
-          <div className={styles.label}>Facturé à</div>
-          <div className={cn(styles.serif, styles.clientName)}>{model.client.name}</div>
-          <div className={styles.details}>
-            {model.client.lines.map((line) => (
-              <div key={line}>{line}</div>
-            ))}
-          </div>
-        </div>
-        {model.event ? (
-          <div className={styles.event}>
-            <div className={styles.label}>Votre événement</div>
-            <div className={cn(styles.serif, styles.eventTitle)}>{model.event.title}</div>
-            <div className={styles.eventDate}>{model.event.dateLabel}</div>
-            <div className={styles.eventPlace}>{model.event.place}</div>
-          </div>
-        ) : null}
       </section>
 
       <table className={styles.table}>
@@ -114,6 +116,7 @@ export function InvoiceDocument({ model }: { model: InvoiceDocumentModel }) {
             <tr key={`${index}-${line.label}`} className={line.isDiscount ? styles.discount : undefined}>
               <td>
                 <div className={styles.item}>{line.label || "—"}</div>
+                {line.periodLabel ? <div className={styles.period}>{line.periodLabel}</div> : null}
                 {line.description ? <div className={styles.sub}>{line.description}</div> : null}
               </td>
               <td className={styles.num}>{line.quantity}</td>
@@ -126,48 +129,29 @@ export function InvoiceDocument({ model }: { model: InvoiceDocumentModel }) {
 
       {model.notes ? <p className={styles.notes}>{model.notes}</p> : null}
 
-      <section className={styles.bottom}>
-        <div>
-          {model.recap ? (
-            <>
-              <div className={styles.label}>Récapitulatif de votre réservation</div>
-              {model.recap.map((row) => (
-                <div
-                  key={row.label}
-                  className={cn(styles.recapRow, row.emphasis && styles.recapEmphasis)}
-                >
-                  <span>{row.label}</span>
-                  <span>{formatEuroDocument(row.amount)}</span>
-                </div>
-              ))}
-            </>
-          ) : null}
-        </div>
-        <div>
-          {hasVat ? (
-            <>
-              <div className={styles.totalsRow}>
-                <span>Total HT</span>
-                <span>{formatEuroDocument(model.amountHt)}</span>
-              </div>
-              <div className={styles.totalsRow}>
-                <span>TVA {model.vatRate} %</span>
-                <span>{formatEuroDocument(model.vatAmount)}</span>
-              </div>
-            </>
-          ) : null}
-          <div className={styles.grand}>
-            <span className={styles.grandLabel}>{hasVat ? "Total TTC" : "Total"}</span>
-            <span className={cn(styles.serif, styles.grandValue)}>
-              {formatEuroDocument(model.amountTtc)}
-            </span>
-          </div>
+      <section className={styles.totals}>
+        {hasVat ? (
+          <>
+            <div className={styles.totalsRow}>
+              <span>Total HT</span>
+              <span>{formatEuroDocument(model.amountHt)}</span>
+            </div>
+            <div className={styles.totalsRow}>
+              <span>TVA {model.vatRate} %</span>
+              <span>{formatEuroDocument(model.vatAmount)}</span>
+            </div>
+          </>
+        ) : null}
+        <div className={styles.grand}>
+          <span className={styles.grandLabel}>{hasVat ? "Total TTC" : "Total"}</span>
+          <span className={cn(styles.serif, styles.grandValue)}>
+            {formatEuroDocument(model.amountTtc)}
+          </span>
         </div>
       </section>
 
       <section className={cn(styles.payment, !model.bank && styles.paymentSingle)}>
         <div>
-          <div className={styles.label}>Règlement</div>
           <p>{model.paymentText}</p>
         </div>
         {model.bank ? (
@@ -185,9 +169,15 @@ export function InvoiceDocument({ model }: { model: InvoiceDocumentModel }) {
       </section>
 
       {model.thanks.message || model.thanks.signature ? (
-        <section className={styles.thanks}>
+        <section className={cn(styles.thanks, isOther && styles.thanksOther)}>
           {model.thanks.message ? (
-            <div className={cn(styles.serif, styles.thanksMessage)}>{model.thanks.message}</div>
+            <div
+              className={cn(
+                isOther ? styles.thanksMessageOther : cn(styles.serif, styles.thanksMessage)
+              )}
+            >
+              {model.thanks.message}
+            </div>
           ) : null}
           {model.thanks.signature ? (
             <div className={cn(styles.serif, styles.signature)}>{model.thanks.signature}</div>

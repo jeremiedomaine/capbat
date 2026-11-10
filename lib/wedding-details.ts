@@ -8,6 +8,10 @@ export type WeddingDetailFields = {
   spouse2Phone: string
   postalAddress: string
   comments: string
+  /** Arrivée au logement (YYYY-MM-DD). */
+  stayArrivalDate: string
+  /** Départ du logement (YYYY-MM-DD). */
+  stayDepartureDate: string
 }
 
 export const EMPTY_WEDDING_DETAILS: WeddingDetailFields = {
@@ -20,6 +24,8 @@ export const EMPTY_WEDDING_DETAILS: WeddingDetailFields = {
   spouse2Phone: "",
   postalAddress: "",
   comments: "",
+  stayArrivalDate: "",
+  stayDepartureDate: "",
 }
 
 export type WeddingDetailInput = WeddingDetailFields & {

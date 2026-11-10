@@ -67,7 +67,7 @@ export function buildLineItemsForType(
   if (type === "deposit") {
     return [
       {
-        label: `Acompte — location pour mariage ${couple}${eventLabel}`,
+        label: `Acompte — ${couple}${eventLabel}`,
         quantity: 1,
         unitPrice: depositAmount,
       },
@@ -76,7 +76,7 @@ export function buildLineItemsForType(
   if (type === "balance") {
     return [
       {
-        label: `Solde — location pour mariage ${couple}${eventLabel}`,
+        label: `Solde — ${couple}${eventLabel}`,
         quantity: 1,
         unitPrice: balanceAmount,
       },
@@ -84,7 +84,7 @@ export function buildLineItemsForType(
   }
   return [
     {
-      label: `Prestation complète — mariage ${couple}${eventLabel}`,
+      label: `Prestation complète — ${couple}${eventLabel}`,
       quantity: 1,
       unitPrice: depositAmount + balanceAmount,
     },

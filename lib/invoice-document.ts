@@ -1,18 +1,18 @@
-import { EVENT_TYPE_LABELS } from "@/lib/event-types"
 import { buildIssuerFromSettings } from "@/lib/invoice-issuer"
 import { mergeInvoiceTemplate } from "@/lib/invoice-template"
-import type { Invoice, InvoiceLineItem, InvoiceParty } from "@/lib/invoice-types"
+import type { Invoice, InvoiceLineItem, InvoiceOccasion, InvoiceParty } from "@/lib/invoice-types"
+import { parseInvoiceOccasion } from "@/lib/invoice-types"
 import {
   computeAmountHt,
   computeVatAmount,
   lineItemsTotal,
-  parseEuroAmount,
 } from "@/lib/invoice-utils"
 import type { Wedding } from "@/lib/weddings-store"
 import type { WorkspaceSettings } from "@/lib/workspace-settings"
 
 /** Données d'une facture affichée (aperçu écran et PDF partagent ce modèle). */
 export type InvoiceDocumentModel = {
+  occasion: InvoiceOccasion
   title: string
   titleAccent: string
   number: string
@@ -28,10 +28,10 @@ export type InvoiceDocumentModel = {
     name: string
     lines: string[]
   }
-  event: { title: string; dateLabel: string; place: string } | null
   lines: Array<{
     label: string
     description?: string
+    periodLabel?: string
     quantity: number
     unitPrice: number
     total: number
@@ -41,13 +41,17 @@ export type InvoiceDocumentModel = {
   amountHt: number
   vatAmount: number
   amountTtc: number
-  recap: Array<{ label: string; amount: number; emphasis?: boolean }> | null
+  /** Texte d'échéance / référence, sans imposer un mode de paiement. */
   paymentText: string
   bank: { iban: string; bic: string; holder: string } | null
   notes: string
   thanks: { message: string; signature: string }
   legalLines: string[]
 }
+
+const OTHER_TAGLINE = "Location & événements"
+const OTHER_THANKS = "Merci pour votre confiance."
+const WEDDING_THANKS_FALLBACK = "Merci de me confier ce jour si précieux."
 
 export type InvoiceDocumentWedding = Pick<
   Wedding,
@@ -56,12 +60,19 @@ export type InvoiceDocumentWedding = Pick<
 
 export type InvoiceDocumentDraft = Pick<
   Invoice,
-  "type" | "number" | "status" | "locked" | "issuedAt" | "dueAt" | "vatRate" | "lineItems" | "client" | "issuer"
-> & { notes?: string }
+  | "type"
+  | "number"
+  | "status"
+  | "locked"
+  | "issuedAt"
+  | "dueAt"
+  | "vatRate"
+  | "lineItems"
+  | "client"
+  | "issuer"
+> & { notes?: string; occasion?: InvoiceOccasion }
 
 const VAT_EXEMPT_NOTICE = "TVA non applicable, art. 293 B du CGI."
-const LATE_PAYMENT_NOTICE =
-  "En cas de retard de paiement, pénalités au taux légal en vigueur et indemnité forfaitaire de 40 € pour frais de recouvrement."
 
 const TITLE_ACCENTS: Record<Invoice["type"], string> = {
   deposit: "d'acompte",
@@ -89,6 +100,9 @@ export function buildInvoiceDocument(params: {
   const issuerCity = prettifyCity(issuer.city)
   const issuerPostalCity = [issuer.postalCode, issuerCity].filter(Boolean).join(" ")
 
+  const occasion = resolveInvoiceOccasion(invoice, wedding)
+  const isOther = occasion === "other"
+
   const amountTtc = lineItemsTotal(invoice.lineItems)
   const vatRate = invoice.vatRate
   const lines = invoice.lineItems.map((item) => toDocumentLine(item))
@@ -106,7 +120,12 @@ export function buildInvoiceDocument(params: {
       }
     : null
 
+  const weddingThanks = template.thankYouMessage.trim() || WEDDING_THANKS_FALLBACK
+  const tagline = isOther ? OTHER_TAGLINE : template.tagline.trim()
+  const thanksMessage = isOther ? OTHER_THANKS : weddingThanks
+
   return {
+    occasion,
     title: "Facture",
     titleAccent: TITLE_ACCENTS[invoice.type],
     number: invoice.number,
@@ -114,7 +133,7 @@ export function buildInvoiceDocument(params: {
     dueLabel,
     issuer: {
       name: issuer.name,
-      tagline: template.tagline.trim(),
+      tagline,
       lines: [issuer.addressLine, issuerPostalCity, issuer.email, formatPhone(issuer.phone)].filter(
         (line): line is string => Boolean(line?.trim())
       ),
@@ -138,24 +157,29 @@ export function buildInvoiceDocument(params: {
         clientContact,
       ].filter((line): line is string => Boolean(line?.trim())),
     },
-    event: wedding ? buildEvent(wedding, issuer.name, issuerCity) : null,
     lines,
     vatRate,
     amountHt: computeAmountHt(amountTtc, vatRate),
     vatAmount: computeVatAmount(amountTtc, vatRate),
     amountTtc,
-    recap: wedding ? buildRecap(invoice.type, wedding, amountTtc) : null,
-    paymentText: bank
-      ? `Par virement bancaire avant le ${dueLabel}, en indiquant la référence ${invoice.number}.`
-      : `Règlement avant le ${dueLabel}, en indiquant la référence ${invoice.number}.`,
+    paymentText: `Échéance le ${dueLabel}. Merci d'indiquer la référence ${invoice.number}.`,
     bank,
     notes: invoice.notes?.trim() ?? "",
     thanks: {
-      message: template.thankYouMessage.trim(),
+      message: thanksMessage,
       signature: template.signature.trim() || settings.managerName.trim(),
     },
     legalLines: buildLegalLines(template.legalNotice, vatRate),
   }
+}
+
+function resolveInvoiceOccasion(
+  invoice: InvoiceDocumentDraft,
+  wedding: InvoiceDocumentWedding | null
+): InvoiceOccasion {
+  if (invoice.occasion) return parseInvoiceOccasion(invoice.occasion)
+  if (wedding?.eventType && wedding.eventType !== "wedding") return "other"
+  return "wedding"
 }
 
 function toDocumentLine(item: InvoiceLineItem): InvoiceDocumentModel["lines"][number] {
@@ -163,6 +187,7 @@ function toDocumentLine(item: InvoiceLineItem): InvoiceDocumentModel["lines"][nu
   return {
     label: item.label,
     description: item.description?.trim() || undefined,
+    periodLabel: formatPeriodLabel(item.periodStart, item.periodEnd),
     quantity: item.quantity,
     unitPrice: item.unitPrice,
     total,
@@ -170,64 +195,32 @@ function toDocumentLine(item: InvoiceLineItem): InvoiceDocumentModel["lines"][nu
   }
 }
 
-function buildEvent(
-  wedding: InvoiceDocumentWedding,
-  issuerName: string,
-  issuerCity: string
-): InvoiceDocumentModel["event"] {
-  const typeLabel = EVENT_TYPE_LABELS[wedding.eventType] ?? "Événement"
-  const title =
-    wedding.eventName?.trim() ||
-    (wedding.eventType === "gite" ? `Séjour au gîte — ${wedding.couple}` : `${typeLabel} de ${wedding.couple}`)
-  return {
-    title,
-    dateLabel: capitalize(formatLongDate(wedding.eventDate, true)),
-    place: [issuerName, issuerCity].filter(Boolean).join(" · "),
+export function formatPeriodLabel(start?: string, end?: string): string | undefined {
+  const from = start?.trim().slice(0, 10)
+  const to = end?.trim().slice(0, 10)
+  if (!from && !to) return undefined
+  if (from && to) {
+    if (from === to) return `Le ${formatLongDate(from)}`
+    return `Du ${formatLongDate(from)} au ${formatLongDate(to)}`
   }
-}
-
-function buildRecap(
-  type: Invoice["type"],
-  wedding: InvoiceDocumentWedding,
-  amountTtc: number
-): InvoiceDocumentModel["recap"] {
-  if (type === "full") return null
-  const deposit = parseEuroAmount(wedding.deposit.amount)
-  const balance = parseEuroAmount(wedding.balance.amount)
-  const total = deposit + balance
-  if (total <= 0) return null
-
-  const planned = type === "deposit" ? deposit : balance
-  const adjustments = Math.round((amountTtc - planned) * 100) / 100
-  const adjustmentRow =
-    Math.abs(adjustments) >= 0.01
-      ? [{ label: "Extras et ajustements (cette facture)", amount: adjustments }]
-      : []
-
-  if (type === "deposit") {
-    return [
-      { label: "Montant total de la prestation", amount: total },
-      { label: "Acompte (cette facture)", amount: deposit },
-      ...adjustmentRow,
-      { label: "Solde restant à régler", amount: balance, emphasis: true },
-    ]
-  }
-  return [
-    { label: "Montant total de la prestation", amount: total },
-    { label: wedding.deposit.status === "paid" ? "Acompte réglé" : "Acompte", amount: deposit },
-    ...adjustmentRow,
-    { label: "Solde à régler (cette facture)", amount: amountTtc, emphasis: true },
-  ]
+  if (from) return `À partir du ${formatLongDate(from)}`
+  return `Jusqu'au ${formatLongDate(to!)}`
 }
 
 function buildLegalLines(legalNotice: string, vatRate: number): string[] {
   let notice = legalNotice.trim()
+  // Capucine ne veut pas ces mentions en pied de page.
+  notice = notice
+    .replace(/Paiement par virement bancaire[^.]*\.?/gi, "")
+    .replace(/Paiement sous\s+\d+\s+jours\.?/gi, "")
+    .replace(/En cas de retard de paiement[^.]*\.?/gi, "")
+    .replace(/\s{2,}/g, " ")
+    .trim()
   if (vatRate > 0) {
     notice = notice.replace(/\s*TVA non applicable(?:,?\s*art\.)?[^.]*\.?/i, "").trim()
   }
   const lines = [notice]
   if (vatRate <= 0 && !/293\s*B/i.test(notice)) lines.push(VAT_EXEMPT_NOTICE)
-  lines.push(LATE_PAYMENT_NOTICE)
   return lines.filter(Boolean)
 }
 
@@ -260,10 +253,6 @@ function prettifyCity(raw?: string): string {
   return value
     .toLowerCase()
     .replace(/(^|[\s-])(\p{L})/gu, (_, sep: string, letter: string) => sep + letter.toUpperCase())
-}
-
-function capitalize(value: string): string {
-  return value.charAt(0).toUpperCase() + value.slice(1)
 }
 
 function formatPhone(raw?: string): string {

@@ -3,7 +3,6 @@ import path from "path"
 import fontkit from "@pdf-lib/fontkit"
 import {
   PDFDocument,
-  degrees,
   rgb,
   setCharacterSpacing,
   type PDFFont,
@@ -75,17 +74,6 @@ class Canvas {
       borderColor: COLORS.sandLight,
       borderWidth: 1 * PX,
     })
-    if (this.logo) {
-      // Rotation autour du coin bas-gauche : position recalée sur le centre de l'aperçu CSS.
-      this.page.drawImage(this.logo, {
-        x: 507 * PX,
-        y: 107 * PX,
-        width: 460 * PX,
-        height: 460 * PX,
-        opacity: 0.07,
-        rotate: degrees(12),
-      })
-    }
   }
 
   image(x: number, top: number, size: number) {
@@ -253,95 +241,100 @@ export async function buildInvoicePdf(model: InvoiceDocumentModel): Promise<Buff
 
 function drawHeader(canvas: Canvas, model: InvoiceDocumentModel): number {
   const { fonts } = canvas
-  canvas.image(LEFT, 56, 112)
+  const center = PAGE_W / 2
+  const logoSize = 128
+  canvas.image(center - logoSize / 2, 48, logoSize)
 
-  const textX = LEFT + 112 + 18
-  const lineCount = model.issuer.lines.length
-  const blockHeight = 30 + (model.issuer.tagline ? 15 : 0) + 10 + lineCount * 17.6
-  let top = 56 + Math.max(0, (112 - blockHeight) / 2)
-
-  canvas.text(model.issuer.name, textX, top + 23, 25, fonts.serifMedium, COLORS.ink, { spacing: 0.02 })
-  top += 30
+  let y = 48 + logoSize + 12
+  canvas.text(model.issuer.name, center, y + 24, 26, fonts.serifMedium, COLORS.ink, {
+    align: "center",
+    spacing: 0.04,
+  })
+  y += 28
   if (model.issuer.tagline) {
-    canvas.text(model.issuer.tagline.toUpperCase(), textX, top + 11, 9.5, fonts.light, COLORS.gold, { spacing: 0.28 })
-    top += 15
+    canvas.text(model.issuer.tagline.toUpperCase(), center, y + 10, 9.5, fonts.light, COLORS.gold, {
+      align: "center",
+      spacing: 0.28,
+    })
+    y += 14
   }
-  top += 10
+  y += 6
   for (const line of model.issuer.lines) {
-    canvas.text(line, textX, top + 12, 11, fonts.light, COLORS.inkSoft)
-    top += 17.6
+    canvas.text(line, center, y + 11, 10.5, fonts.light, COLORS.inkSoft, { align: "center" })
+    y += 16
   }
 
+  y += 22
+  const isOther = model.occasion === "other"
   const accent = model.titleAccent
-  const titleWidth =
-    canvas.width(accent ? `${model.title} ` : model.title, 38, fonts.serif) +
-    (accent ? canvas.width(accent, 38, fonts.serifItalic) : 0)
-  canvas.text(accent ? `${model.title} ` : model.title, RIGHT - titleWidth, 56 + 33, 38, fonts.serif, COLORS.ink)
-  if (accent) canvas.text(accent, RIGHT, 56 + 33, 38, fonts.serifItalic, COLORS.gold, { align: "right" })
+  if (isOther) {
+    const title = model.title.toUpperCase()
+    const titleWidth = canvas.width(title, 28, fonts.regular, 0.04)
+    const accentWidth = accent ? canvas.width(` ${accent}`, 16, fonts.light) : 0
+    const startX = center - (titleWidth + accentWidth) / 2
+    canvas.text(title, startX, y + 26, 28, fonts.regular, COLORS.ink, { spacing: 0.04 })
+    if (accent) {
+      canvas.text(` ${accent}`, startX + titleWidth, y + 24, 16, fonts.light, COLORS.inkSoft)
+    }
+  } else {
+    const title = accent ? `${model.title} ` : model.title
+    const titleWidth =
+      canvas.width(title, 34, fonts.serif) + (accent ? canvas.width(accent, 34, fonts.serifItalic) : 0)
+    canvas.text(title, center - titleWidth / 2, y + 30, 34, fonts.serif, COLORS.ink)
+    if (accent) {
+      canvas.text(
+        accent,
+        center - titleWidth / 2 + canvas.width(title, 34, fonts.serif),
+        y + 30,
+        34,
+        fonts.serifItalic,
+        COLORS.gold
+      )
+    }
+  }
+  y += isOther ? 30 : 34
 
+  const ornamentY = y + 22 + 11
+  canvas.hLine(LEFT + 40, center - (isOther ? 10 : 24), ornamentY, COLORS.sand)
+  canvas.hLine(center + (isOther ? 10 : 24), RIGHT - 40, ornamentY, COLORS.sand)
+  if (!isOther) canvas.fern(center, ornamentY, 22)
+  return ornamentY + 11 + 26
+}
+
+function drawParties(canvas: Canvas, model: InvoiceDocumentModel, top: number): number {
+  const { fonts } = canvas
+  const columnWidth = (CONTENT_W - 36) / 2
+  const rightX = LEFT + columnWidth + 36
+
+  drawLabel(canvas, "Facturé à", LEFT, top)
+  const nameLines = canvas.wrap(model.client.name, 22, fonts.serifMedium, columnWidth)
+  let leftY = top + 21
+  for (const line of nameLines) {
+    canvas.text(line, LEFT, leftY + 20, 22, fonts.serifMedium, COLORS.ink)
+    leftY += 26
+  }
+  leftY += 8
+  for (const detail of model.client.lines) {
+    for (const line of canvas.wrap(detail, 11.5, fonts.light, columnWidth)) {
+      canvas.text(line, LEFT, leftY + 12, 11.5, fonts.light, COLORS.inkSoft)
+      leftY += 19
+    }
+  }
+
+  drawLabel(canvas, "Facture", rightX, top)
   const meta: Array<[string, string]> = [
     ["N°", model.number],
     ["Émise le", model.issuedLabel],
     ["Échéance", model.dueLabel],
   ]
-  const valueWidth = Math.max(...meta.map(([, value]) => canvas.width(value, 11, fonts.regular)))
-  let metaY = 56 + 38 + 16
+  let rightY = top + 21
   for (const [label, value] of meta) {
-    canvas.text(value, RIGHT, metaY + 11, 11, fonts.regular, COLORS.ink, { align: "right" })
-    canvas.text(label.toUpperCase(), RIGHT - valueWidth - 14, metaY + 10, 9, fonts.light, COLORS.inkMuted, {
-      align: "right",
-      spacing: 0.14,
-    })
-    metaY += 18
+    canvas.text(label.toUpperCase(), rightX, rightY + 10, 9, fonts.light, COLORS.inkMuted, { spacing: 0.14 })
+    canvas.text(value, RIGHT, rightY + 11, 11.5, fonts.regular, COLORS.ink, { align: "right" })
+    rightY += 22
   }
 
-  const headerBottom = Math.max(56 + 112, metaY, top)
-  const ornamentY = headerBottom + 34 + 13
-  canvas.hLine(LEFT + 40, 397 - 27, ornamentY, COLORS.sand)
-  canvas.hLine(397 + 27, RIGHT - 40, ornamentY, COLORS.sand)
-  canvas.fern(397, ornamentY, 26)
-  return ornamentY + 13 + 30
-}
-
-function drawParties(canvas: Canvas, model: InvoiceDocumentModel, top: number): number {
-  const { fonts } = canvas
-  const columnWidth = (CONTENT_W - 28) / 2
-  const rightX = LEFT + columnWidth + 28
-
-  drawLabel(canvas, "Facturé à", LEFT, top)
-  const nameLines = canvas.wrap(model.client.name, 24, fonts.serifMedium, columnWidth)
-  let y = top + 21
-  for (const line of nameLines) {
-    canvas.text(line, LEFT, y + 21, 24, fonts.serifMedium, COLORS.ink)
-    y += 28
-  }
-  y += 8
-  for (const detail of model.client.lines) {
-    for (const line of canvas.wrap(detail, 11.5, fonts.light, columnWidth)) {
-      canvas.text(line, LEFT, y + 12, 11.5, fonts.light, COLORS.inkSoft)
-      y += 19
-    }
-  }
-  let bottom = y
-
-  if (model.event) {
-    const innerWidth = columnWidth - 40
-    const titleLines = canvas.wrap(model.event.title, 21, fonts.serifItalic, innerWidth)
-    const boxHeight = 18 + 21 + titleLines.length * 25 + 4 + 15 + 10 + 13 + 18
-    canvas.rect(rightX, top, columnWidth, boxHeight, COLORS.cream, COLORS.sandLight)
-    drawLabel(canvas, "Votre événement", rightX + 20, top + 18)
-    let eventY = top + 18 + 21
-    for (const line of titleLines) {
-      canvas.text(line, rightX + 20, eventY + 19, 21, fonts.serifItalic, COLORS.ink)
-      eventY += 25
-    }
-    eventY += 4
-    canvas.text(model.event.dateLabel, rightX + 20, eventY + 12, 12, fonts.light, COLORS.inkSoft)
-    eventY += 15 + 10
-    canvas.text(model.event.place, rightX + 20, eventY + 10, 10.5, fonts.light, COLORS.inkMuted, { spacing: 0.04 })
-    bottom = Math.max(bottom, top + boxHeight)
-  }
-  return bottom
+  return Math.max(leftY, rightY)
 }
 
 const COLUMNS = { qty: 455, unit: 590, total: RIGHT, labelWidth: 330 }
@@ -359,10 +352,19 @@ function drawTableHeader(canvas: Canvas, top: number): number {
 
 function measureRow(canvas: Canvas, line: InvoiceDocumentModel["lines"][number]): number {
   const labelLines = canvas.wrap(line.label || "—", 12.5, canvas.fonts.regular, COLUMNS.labelWidth)
+  const periodLines = line.periodLabel
+    ? canvas.wrap(line.periodLabel, 10.5, canvas.fonts.light, COLUMNS.labelWidth)
+    : []
   const descLines = line.description
     ? canvas.wrap(line.description, 10.5, canvas.fonts.light, COLUMNS.labelWidth)
     : []
-  return 13 + labelLines.length * 17 + (descLines.length ? 3 + descLines.length * 15 : 0) + 13
+  return (
+    13 +
+    labelLines.length * 17 +
+    (periodLines.length ? 3 + periodLines.length * 15 : 0) +
+    (descLines.length ? 3 + descLines.length * 15 : 0) +
+    13
+  )
 }
 
 function drawRow(canvas: Canvas, line: InvoiceDocumentModel["lines"][number], top: number): number {
@@ -374,6 +376,13 @@ function drawRow(canvas: Canvas, line: InvoiceDocumentModel["lines"][number], to
   for (const labelLine of labelLines) {
     canvas.text(labelLine, LEFT, y + 12, 12.5, fonts.regular, color)
     y += 17
+  }
+  if (line.periodLabel) {
+    y += 3
+    for (const periodLine of canvas.wrap(line.periodLabel, 10.5, fonts.light, COLUMNS.labelWidth)) {
+      canvas.text(periodLine, LEFT, y + 11, 10.5, fonts.light, COLORS.inkSoft)
+      y += 15
+    }
   }
   if (line.description) {
     y += 3
@@ -396,46 +405,30 @@ function drawRow(canvas: Canvas, line: InvoiceDocumentModel["lines"][number], to
 }
 
 function measureBottom(model: InvoiceDocumentModel): number {
-  const recapHeight = model.recap ? 19 + model.recap.length * 27 : 0
-  const totalsHeight = (model.vatRate > 0 ? 56 : 0) + 10 + 62
-  return Math.max(recapHeight, totalsHeight)
+  return (model.vatRate > 0 ? 56 : 0) + 8 + 42
 }
 
 function drawBottom(canvas: Canvas, model: InvoiceDocumentModel, top: number): number {
   const { fonts } = canvas
-  const recapRight = RIGHT - 260 - 40
-  const totalsLeft = RIGHT - 260
-
-  if (model.recap) {
-    drawLabel(canvas, "Récapitulatif de votre réservation", LEFT, top)
-    let y = top + 19
-    model.recap.forEach((row, index) => {
-      const color = row.emphasis ? COLORS.ink : COLORS.inkSoft
-      const font = row.emphasis ? fonts.regular : fonts.light
-      canvas.text(row.label, LEFT, y + 6 + 11, 11.5, font, color)
-      canvas.text(formatEuroDocument(row.amount), recapRight, y + 6 + 11, 11.5, font, color, { align: "right" })
-      y += 27
-      if (index < model.recap!.length - 1) canvas.hLine(LEFT, recapRight, y, COLORS.sand, [1, 2])
-    })
-  }
-
+  const totalsLeft = RIGHT - 240
   let y = top
+
   if (model.vatRate > 0) {
     for (const [label, value] of [
       ["Total HT", model.amountHt],
       [`TVA ${model.vatRate} %`, model.vatAmount],
     ] as const) {
-      canvas.text(label, totalsLeft, y + 6 + 12, 12, fonts.light, COLORS.inkSoft)
-      canvas.text(formatEuroDocument(value), RIGHT, y + 6 + 12, 12, fonts.light, COLORS.inkSoft, { align: "right" })
+      canvas.text(label, totalsLeft, y + 5 + 12, 12, fonts.light, COLORS.inkSoft)
+      canvas.text(formatEuroDocument(value), RIGHT, y + 5 + 12, 12, fonts.light, COLORS.inkSoft, { align: "right" })
       y += 28
     }
   }
-  y += 10
-  canvas.rect(totalsLeft, y, 260, 62, COLORS.ink)
-  canvas.text(model.vatRate > 0 ? "TOTAL TTC" : "TOTAL", totalsLeft + 18, y + 38, 9.5, fonts.light, COLORS.sand, {
-    spacing: 0.24,
+  y += 8
+  canvas.rect(totalsLeft, y, 240, 42, COLORS.cream, COLORS.sand)
+  canvas.text(model.vatRate > 0 ? "TOTAL TTC" : "TOTAL", totalsLeft + 14, y + 26, 9, fonts.light, COLORS.gold, {
+    spacing: 0.2,
   })
-  canvas.text(formatEuroDocument(model.amountTtc), RIGHT - 18, y + 41, 28, fonts.serifMedium, COLORS.paper, {
+  canvas.text(formatEuroDocument(model.amountTtc), RIGHT - 14, y + 28, 22, fonts.serifMedium, COLORS.ink, {
     align: "right",
   })
   return top + measureBottom(model)
@@ -449,18 +442,18 @@ function paymentColumns(model: InvoiceDocumentModel) {
 function measurePayment(canvas: Canvas, model: InvoiceDocumentModel): number {
   const { columnWidth } = paymentColumns(model)
   const textLines = canvas.wrap(model.paymentText, 11, canvas.fonts.light, columnWidth).length
-  return 40 + 22 + 19 + Math.max(textLines, model.bank ? 2 : 0) * 18.7
+  const bankLines = model.bank ? 2 : 0
+  return 36 + 20 + Math.max(textLines, bankLines + (model.bank ? 1 : 0)) * 18.7 + (model.bank ? 19 : 0)
 }
 
 function drawPayment(canvas: Canvas, model: InvoiceDocumentModel, top: number): number {
   const { fonts } = canvas
   const { columnWidth, rightX } = paymentColumns(model)
-  const lineTop = top + 40
+  const lineTop = top + 36
   canvas.hLine(LEFT, RIGHT, lineTop, COLORS.sandLight)
-  const contentTop = lineTop + 22
+  const contentTop = lineTop + 20
 
-  drawLabel(canvas, "Règlement", LEFT, contentTop)
-  let y = contentTop + 19
+  let y = contentTop
   for (const line of canvas.wrap(model.paymentText, 11, fonts.light, columnWidth)) {
     canvas.text(line, LEFT, y + 12, 11, fonts.light, COLORS.inkSoft)
     y += 18.7
@@ -479,14 +472,25 @@ function drawPayment(canvas: Canvas, model: InvoiceDocumentModel, top: number): 
 function drawThanks(canvas: Canvas, model: InvoiceDocumentModel, top: number) {
   const { fonts } = canvas
   const center = PAGE_W / 2
+  const isOther = model.occasion === "other"
   canvas.hLine(center - 32, center + 32, top, COLORS.sand)
   let y = top + 19
   if (model.thanks.message) {
-    canvas.text(model.thanks.message, center, y + 18, 19, fonts.serifItalic, COLORS.inkSoft, { align: "center" })
-    y += 23 + 6
+    if (isOther) {
+      canvas.text(model.thanks.message, center, y + 13, 13, fonts.light, COLORS.inkSoft, {
+        align: "center",
+        spacing: 0.04,
+      })
+      y += 18 + 6
+    } else {
+      canvas.text(model.thanks.message, center, y + 18, 19, fonts.serifItalic, COLORS.inkSoft, { align: "center" })
+      y += 23 + 6
+    }
   }
   if (model.thanks.signature) {
-    canvas.text(model.thanks.signature, center, y + 20, 22, fonts.serif, COLORS.gold, { align: "center" })
+    canvas.text(model.thanks.signature, center, y + (isOther ? 16 : 20), isOther ? 18 : 22, fonts.serif, COLORS.gold, {
+      align: "center",
+    })
   }
 }
 

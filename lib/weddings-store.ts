@@ -1,4 +1,5 @@
 import { getSupabaseAdmin } from "@/lib/supabase/admin"
+import { parseBookingSource, type BookingSource } from "@/lib/booking-source"
 import { parseEventType, type EventType } from "@/lib/event-types"
 import { parsePaymentMethod, type PaymentMethod } from "@/lib/payment-methods"
 import {
@@ -16,6 +17,7 @@ export type Wedding = WeddingDetailFields &
   WeddingTouristTax & {
   id: number
   eventType: EventType
+  bookingSource: BookingSource
   couple: string
   contactName: string
   email: string
@@ -34,11 +36,14 @@ export type PaymentStatus = "pending" | "paid" | "to_collect"
 
 export type NewWeddingInput = WeddingDetailFields & {
   eventType: EventType
+  bookingSource?: BookingSource
   couple: string
   contactName: string
   email: string
   phone: string
   eventDate: string
+  stayArrivalDate?: string
+  stayDepartureDate?: string
   depositAmount: string
   balanceAmount: string
   autopilot: boolean
@@ -54,6 +59,7 @@ export type UpdateWeddingInput = Partial<WeddingDetailFields> &
   Partial<WeddingPaymentTracking> &
   Partial<WeddingTouristTax> & {
   eventType?: EventType
+  bookingSource?: BookingSource
   couple?: string
   contactName?: string
   email?: string
@@ -91,11 +97,14 @@ export async function createWedding(input: NewWeddingInput): Promise<Wedding> {
   const spouse2Phone = (input.spouse2Phone ?? "").trim()
   const primaryPhone = input.phone.trim() || spouse1Phone || spouse2Phone
   const depositAlreadyPaid = input.depositAlreadyPaid === true
-  const touristTaxStatus = parseTouristTaxStatus(input.touristTaxStatus)
-  const touristTaxAmountRaw = (input.touristTaxAmount ?? "").trim()
+  const bookingSource = parseBookingSource(input.bookingSource)
+  const isPlatform = bookingSource === "platform"
+  const touristTaxStatus = isPlatform ? "" : parseTouristTaxStatus(input.touristTaxStatus)
+  const touristTaxAmountRaw = isPlatform ? "" : (input.touristTaxAmount ?? "").trim()
 
   const payload: ReservationWrite = {
     event_type: input.eventType,
+    booking_source: bookingSource,
     event_name: input.eventName.trim(),
     spouse1_first_name: input.spouse1FirstName.trim(),
     spouse1_last_name: input.spouse1LastName.trim(),
@@ -110,6 +119,8 @@ export async function createWedding(input: NewWeddingInput): Promise<Wedding> {
     email: input.email.trim(),
     phone: primaryPhone,
     event_date: input.eventDate,
+    stay_arrival_date: normalizeOptionalDate(input.stayArrivalDate ?? null),
+    stay_departure_date: normalizeOptionalDate(input.stayDepartureDate ?? null),
     deposit_amount: parseAmount(input.depositAmount),
     balance_amount: parseAmount(input.balanceAmount),
     deposit_status: depositAlreadyPaid ? "paid" : "pending",
@@ -207,6 +218,9 @@ export async function updateWedding(weddingId: number, input: UpdateWeddingInput
   }
 
   if (typeof input.eventType === "string") patch.event_type = input.eventType
+  if (input.bookingSource !== undefined) {
+    patch.booking_source = parseBookingSource(input.bookingSource)
+  }
   if (typeof input.eventName === "string") patch.event_name = input.eventName.trim()
   if (typeof input.spouse1FirstName === "string") patch.spouse1_first_name = input.spouse1FirstName.trim()
   if (typeof input.spouse1LastName === "string") patch.spouse1_last_name = input.spouse1LastName.trim()
@@ -221,6 +235,12 @@ export async function updateWedding(weddingId: number, input: UpdateWeddingInput
   if (typeof input.email === "string") patch.email = input.email.trim()
   if (typeof input.phone === "string") patch.phone = input.phone.trim()
   if (typeof input.eventDate === "string") patch.event_date = input.eventDate
+  if (typeof input.stayArrivalDate === "string") {
+    patch.stay_arrival_date = normalizeOptionalDate(input.stayArrivalDate)
+  }
+  if (typeof input.stayDepartureDate === "string") {
+    patch.stay_departure_date = normalizeOptionalDate(input.stayDepartureDate)
+  }
   if (typeof input.depositAmount === "string") patch.deposit_amount = parseAmount(input.depositAmount)
   if (typeof input.balanceAmount === "string") patch.balance_amount = parseAmount(input.balanceAmount)
   if (typeof input.autopilot === "boolean") patch.autopilot = input.autopilot
@@ -344,6 +364,8 @@ type ReservationRow = {
   id?: number
   event_type?: string | null
   eventType?: string | null
+  booking_source?: string | null
+  bookingSource?: string | null
   couple?: string | null
   event_name?: string | null
   eventName?: string | null
@@ -363,6 +385,8 @@ type ReservationRow = {
   phone?: string | null
   event_date?: string | null
   eventDate?: string | null
+  stay_arrival_date?: string | null
+  stay_departure_date?: string | null
   /** Table legacy : un seul statut global (payé / confirmé / à percevoir). */
   status?: string | null
   deposit_amount?: number | string | null
@@ -388,6 +412,7 @@ type ReservationRow = {
 
 type ReservationWrite = {
   event_type?: EventType
+  booking_source?: BookingSource
   event_name?: string
   spouse1_first_name?: string
   spouse1_last_name?: string
@@ -402,6 +427,8 @@ type ReservationWrite = {
   email?: string
   phone?: string
   event_date?: string
+  stay_arrival_date?: string | null
+  stay_departure_date?: string | null
   deposit_amount?: number
   balance_amount?: number
   deposit_status?: PaymentStatus
@@ -428,6 +455,7 @@ function mapReservationToWedding(row: ReservationRow, index = 0): Wedding {
   return {
     id: stableId,
     eventType: parseEventType(row.event_type ?? row.eventType),
+    bookingSource: parseBookingSource(row.booking_source ?? row.bookingSource),
     ...mapReservationDetails(row),
     ...mapReservationPaymentTracking(row),
     ...mapReservationTouristTax(row),
@@ -498,6 +526,8 @@ function mapReservationDetails(row: ReservationRow): WeddingDetailFields {
     spouse2Phone: row.spouse2_phone ?? "",
     postalAddress: row.postal_address ?? "",
     comments: row.comments ?? "",
+    stayArrivalDate: normalizeStoredDate(row.stay_arrival_date),
+    stayDepartureDate: normalizeStoredDate(row.stay_departure_date),
   }
 }
 
@@ -603,6 +633,9 @@ const OPTIONAL_SCHEMA_KEYS = [
   "tourist_tax_status",
   "tourist_tax_amount",
   "tourist_tax_paid_date",
+  "stay_arrival_date",
+  "stay_departure_date",
+  "booking_source",
 ] as const
 
 function stripOptionalSchemaFields(payload: ReservationWrite): ReservationWrite {

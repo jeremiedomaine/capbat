@@ -41,6 +41,7 @@ export async function POST(request: Request) {
       weddingId: Number(body.weddingId),
       couple: body.couple,
       type: body.type,
+      occasion: body.occasion,
       amountTtc: body.amountTtc ?? lineItemsTotal(body.lineItems),
       lineItems: body.lineItems,
       issuer: buildIssuerFromSettings(await getWorkspaceSettings()),

@@ -1,7 +1,7 @@
 "use client"
 
-import { useEffect } from "react"
-import { usePathname, useRouter } from "next/navigation"
+import { useEffect, useRef } from "react"
+import { usePathname } from "next/navigation"
 import { createClient } from "@/lib/supabase/client"
 
 function isPublicAuthPath(pathname: string) {
@@ -23,51 +23,46 @@ const POLL_MS = 4 * 60 * 1000
  */
 export function AuthSessionKeeper() {
   const pathname = usePathname()
-  const router = useRouter()
+  const redirectingRef = useRef(false)
 
   useEffect(() => {
+    if (isPublicAuthPath(pathname)) return
+
     const supabase = createClient()
     let cancelled = false
 
-    const redirectToLogin = async () => {
-      if (isPublicAuthPath(pathname)) return
-      await supabase.auth.signOut({ scope: "local" })
+    const redirectToLogin = () => {
+      if (cancelled || redirectingRef.current) return
+      redirectingRef.current = true
       const next = pathname && pathname !== "/" ? `?next=${encodeURIComponent(pathname)}` : ""
+      // Remplace sans déclencher une 2ᵉ navigation via onAuthStateChange.
       window.location.replace(`/login${next}`)
     }
 
     const ensureSession = async () => {
+      if (cancelled || redirectingRef.current) return
+
       const { data: sessionData } = await supabase.auth.getSession()
-      if (cancelled) return
+      if (cancelled || redirectingRef.current) return
 
       const session = sessionData.session
       const expiresAt = session?.expires_at ?? 0
       const now = Math.floor(Date.now() / 1000)
       const needsRefresh = !session || expiresAt <= now + REFRESH_SKEW_SECONDS
 
-      if (needsRefresh) {
-        const refreshed = await supabase.auth.refreshSession()
-        if (cancelled) return
-        const user = refreshed.data.user ?? refreshed.data.session?.user ?? null
-        if (!user) {
-          await redirectToLogin()
-          return
-        }
-      } else {
+      if (!needsRefresh) {
         const { data } = await supabase.auth.getUser()
-        if (cancelled) return
-        if (!data.user) {
-          const refreshed = await supabase.auth.refreshSession()
-          if (cancelled) return
-          if (!(refreshed.data.user ?? refreshed.data.session?.user)) {
-            await redirectToLogin()
-            return
-          }
-        }
+        if (cancelled || redirectingRef.current) return
+        if (data.user) return
       }
 
-      if (pathname.startsWith("/login")) {
-        router.replace("/")
+      const refreshed = await supabase.auth.refreshSession()
+      if (cancelled || redirectingRef.current) return
+      const user = refreshed.data.user ?? refreshed.data.session?.user ?? null
+      if (!user) {
+        // Nettoyage local sans attendre (évite course avec la navigation).
+        void supabase.auth.signOut({ scope: "local" })
+        redirectToLogin()
       }
     }
 
@@ -79,15 +74,9 @@ export function AuthSessionKeeper() {
     const {
       data: { subscription },
     } = supabase.auth.onAuthStateChange((event) => {
-      if (cancelled) return
-      if (event === "SIGNED_OUT" && !isPublicAuthPath(pathname)) {
-        window.location.replace("/login")
-      }
-      if (event === "SIGNED_IN" && pathname.startsWith("/login")) {
-        router.replace("/")
-      }
-      if (event === "TOKEN_REFRESHED") {
-        // cookies mis à jour côté navigateur
+      if (cancelled || redirectingRef.current) return
+      if (event === "SIGNED_OUT") {
+        redirectToLogin()
       }
     })
 
@@ -95,17 +84,19 @@ export function AuthSessionKeeper() {
       void ensureSession()
     }
     window.addEventListener("focus", onFocus)
-    document.addEventListener("visibilitychange", () => {
+    const onVisibility = () => {
       if (document.visibilityState === "visible") void ensureSession()
-    })
+    }
+    document.addEventListener("visibilitychange", onVisibility)
 
     return () => {
       cancelled = true
       window.clearInterval(timer)
       window.removeEventListener("focus", onFocus)
+      document.removeEventListener("visibilitychange", onVisibility)
       subscription.unsubscribe()
     }
-  }, [pathname, router])
+  }, [pathname])
 
   return null
 }

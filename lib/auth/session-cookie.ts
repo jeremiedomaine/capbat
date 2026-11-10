@@ -101,7 +101,8 @@ export function isAccessTokenExpired(
   session: ParsedAuthSession | null,
   skewSeconds = 60
 ): boolean {
-  if (!session?.expiresAt) return false
+  // Sans expiry lisible, on force le chemin refresh / login (évite les boucles).
+  if (!session?.expiresAt) return true
   return session.expiresAt <= Math.floor(Date.now() / 1000) + skewSeconds
 }
 

@@ -15,6 +15,7 @@ import type {
   InvoiceType,
   UpdateInvoiceInput,
 } from "@/lib/invoice-types"
+import { parseInvoiceOccasion } from "@/lib/invoice-types"
 import { buildInvoiceNumber, lineItemsTotal, todayIsoDate } from "@/lib/invoice-utils"
 
 const TABLE = process.env.SUPABASE_INVOICES_TABLE?.trim() || "invoices"
@@ -33,6 +34,7 @@ function normalizeInvoice(invoice: Invoice): Invoice {
   return {
     ...invoice,
     locked: invoice.locked ?? false,
+    occasion: parseInvoiceOccasion(invoice.occasion),
   }
 }
 
@@ -90,11 +92,12 @@ export async function createInvoice(input: CreateInvoiceInput): Promise<Invoice>
     weddingId: input.weddingId,
     couple: input.couple.trim(),
     type: input.type,
+    occasion: parseInvoiceOccasion(input.occasion),
     status: input.status ?? "draft",
     issuedAt: input.issuedAt ?? todayIsoDate(),
     dueAt: input.dueAt ?? todayIsoDate(),
     amountTtc,
-    vatRate: input.vatRate ?? 20,
+    vatRate: input.vatRate ?? 10,
     lineItems: input.lineItems,
     issuer: input.issuer,
     client: input.client,
@@ -298,19 +301,22 @@ async function writeFileStore(rows: Invoice[]) {
 }
 
 function mapDbRow(row: Record<string, unknown>): Invoice {
+  const issuerRaw = (row.issuer ?? {}) as Invoice["issuer"] & { __occasion?: string }
+  const { __occasion, ...issuer } = issuerRaw
   return {
     id: String(row.id),
     number: String(row.number),
     weddingId: Number(row.wedding_id),
     couple: String(row.couple),
     type: row.invoice_type as InvoiceType,
+    occasion: parseInvoiceOccasion(row.occasion ?? __occasion),
     status: row.status as InvoiceStatus,
     issuedAt: String(row.issued_at).slice(0, 10),
     dueAt: String(row.due_at).slice(0, 10),
     amountTtc: Number(row.amount_ttc),
-    vatRate: Number(row.vat_rate ?? 20),
+    vatRate: Number(row.vat_rate ?? 10),
     lineItems: (row.line_items as Invoice["lineItems"]) ?? [],
-    issuer: row.issuer as Invoice["issuer"],
+    issuer,
     client: row.client as Invoice["client"],
     notes: row.notes ? String(row.notes) : undefined,
     locked: Boolean(row.locked ?? false),
@@ -320,6 +326,7 @@ function mapDbRow(row: Record<string, unknown>): Invoice {
 }
 
 function toDbRow(invoice: Invoice) {
+  // occasion aussi dans issuer jsonb : marche même sans colonne SQL dédiée.
   return {
     id: invoice.id,
     number: invoice.number,
@@ -332,7 +339,7 @@ function toDbRow(invoice: Invoice) {
     amount_ttc: invoice.amountTtc,
     vat_rate: invoice.vatRate,
     line_items: invoice.lineItems,
-    issuer: invoice.issuer,
+    issuer: { ...invoice.issuer, __occasion: invoice.occasion },
     client: invoice.client,
     notes: invoice.notes ?? null,
     locked: invoice.locked,

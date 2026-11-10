@@ -1,0 +1,325 @@
+/* Carnet papier taxe de séjour (commune) — bordures vertes, pas facture mariage. */
+
+.page {
+  --ink: #1a1a1a;
+  --muted: #333;
+  --line: #2f6b45;
+  --line-soft: #5a9a6e;
+  --fill: #e8f3eb;
+  --paper: #fffef9;
+
+  position: relative;
+  width: 794px;
+  min-height: 1123px;
+  background: var(--paper);
+  color: var(--ink);
+  font-family: "Courier New", Courier, ui-monospace, monospace;
+  font-size: 13px;
+  line-height: 1.35;
+  padding: 36px 40px 48px;
+  box-sizing: border-box;
+}
+
+.page *,
+.page *::before,
+.page *::after {
+  box-sizing: border-box;
+}
+
+.frame {
+  border: 2.5px solid var(--line);
+  height: calc(1123px - 84px);
+  display: flex;
+  flex-direction: column;
+}
+
+.top {
+  display: grid;
+  grid-template-columns: 1.15fr 0.85fr;
+  height: 148px;
+  flex-shrink: 0;
+  border-bottom: 2px solid var(--line);
+}
+
+.issuer {
+  padding: 14px 16px 12px;
+  border-right: 2px solid var(--line);
+}
+
+.issuerName {
+  font-family: Georgia, "Times New Roman", serif;
+  font-size: 18px;
+  font-weight: 700;
+  margin-bottom: 6px;
+}
+
+.issuerLine {
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.rightCol {
+  display: flex;
+  flex-direction: column;
+}
+
+.numberBlock {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  border-bottom: 2px solid var(--line);
+  min-height: 56px;
+}
+
+.numberLabel {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 8px 12px;
+  font-family: Georgia, "Times New Roman", serif;
+  font-size: 15px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  background: var(--fill);
+  border-right: 2px solid var(--line);
+}
+
+.numberValue {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 110px;
+  padding: 8px 14px;
+  font-size: 18px;
+  font-weight: 700;
+}
+
+.clientBlock {
+  flex: 1;
+  padding: 10px 14px 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.clientLabel {
+  font-size: 11px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--line);
+  font-weight: 700;
+}
+
+.clientName {
+  font-family: Georgia, "Times New Roman", serif;
+  font-size: 16px;
+  font-weight: 600;
+  min-height: 48px;
+  border: 1.5px dashed var(--line-soft);
+  padding: 10px 12px;
+  background: #fff;
+}
+
+.dateRow {
+  display: flex;
+  align-items: center;
+  height: 38px;
+  flex-shrink: 0;
+  padding: 0 16px;
+  border-bottom: 2px solid var(--line);
+  font-size: 14px;
+  letter-spacing: 0.04em;
+}
+
+.dateRow strong {
+  font-family: Georgia, "Times New Roman", serif;
+  font-weight: 700;
+  margin-right: 8px;
+}
+
+.table {
+  width: 100%;
+  border-collapse: collapse;
+  table-layout: fixed;
+  flex: 1 1 auto;
+  height: 0;
+}
+
+.table thead {
+  height: 36px;
+}
+
+.table tbody tr {
+  height: calc((100% - 36px) / 18);
+}
+
+.table th {
+  background: var(--fill);
+  border-bottom: 2px solid var(--line);
+  border-right: 1.5px solid var(--line);
+  padding: 10px 8px;
+  font-family: Georgia, "Times New Roman", serif;
+  font-size: 12px;
+  font-weight: 700;
+  text-align: center;
+  height: 36px;
+}
+
+.table th:last-child,
+.table td:last-child {
+  border-right: none;
+}
+
+.table th:nth-child(1) {
+  width: 46%;
+  text-align: left;
+  padding-left: 12px;
+}
+.table th:nth-child(2) {
+  width: 18%;
+}
+.table th:nth-child(3) {
+  width: 18%;
+}
+.table th:nth-child(4) {
+  width: 18%;
+}
+
+.table td {
+  border-bottom: 1.5px solid var(--line);
+  border-right: 1.5px solid var(--line);
+  padding: 8px 12px;
+  vertical-align: middle;
+  font-size: 13px;
+}
+
+.table td:nth-child(2),
+.table td:nth-child(3),
+.table td:nth-child(4) {
+  text-align: center;
+}
+
+.table td:nth-child(4) {
+  text-align: right;
+  font-weight: 600;
+}
+
+.desigTitle {
+  font-family: Georgia, "Times New Roman", serif;
+  font-weight: 700;
+  font-size: 14px;
+}
+
+.desigPeriod {
+  font-size: 12.5px;
+  color: var(--muted);
+}
+
+.struckCell {
+  color: #888;
+}
+
+.emptyRow td {
+  height: auto;
+}
+
+.footer {
+  display: grid;
+  grid-template-columns: 1.15fr 0.85fr;
+  height: 126px;
+  flex-shrink: 0;
+  border-top: 2px solid var(--line);
+}
+
+.payment {
+  padding: 14px 16px 16px;
+  border-right: 2px solid var(--line);
+  font-size: 13px;
+}
+
+.paymentTitle {
+  font-family: Georgia, "Times New Roman", serif;
+  font-weight: 700;
+  font-size: 12px;
+  letter-spacing: 0.04em;
+  margin-bottom: 10px;
+  color: var(--line);
+}
+
+.paymentRow {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+
+.paymentRow span:first-child {
+  min-width: 140px;
+  color: var(--muted);
+}
+
+.paymentValue {
+  flex: 1;
+  border-bottom: 1px solid var(--line-soft);
+  padding-bottom: 2px;
+  font-weight: 600;
+}
+
+.totals {
+  display: flex;
+  flex-direction: column;
+}
+
+.totalRow {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  border-bottom: 1.5px solid var(--line);
+  min-height: 42px;
+}
+
+.totalRow:last-child {
+  border-bottom: none;
+}
+
+.totalLabel {
+  display: flex;
+  align-items: center;
+  padding: 8px 12px;
+  background: var(--fill);
+  border-right: 1.5px solid var(--line);
+  font-family: Georgia, "Times New Roman", serif;
+  font-weight: 700;
+  font-size: 12px;
+  letter-spacing: 0.03em;
+}
+
+.totalValue {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  padding: 8px 14px;
+  font-size: 15px;
+  font-weight: 700;
+}
+
+.totalValue.struck {
+  color: #888;
+  text-decoration: line-through;
+  font-weight: 500;
+  justify-content: center;
+}
+
+.totalRow.ttc .totalLabel {
+  background: var(--line);
+  color: #fff;
+}
+
+.totalRow.ttc .totalValue {
+  font-size: 17px;
+}
+
+.legal {
+  margin-top: 10px;
+  font-size: 9px;
+  line-height: 1.4;
+  color: #555;
+  text-align: justify;
+}

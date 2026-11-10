@@ -34,6 +34,13 @@ import {
   type PaymentMethod,
 } from "@/lib/payment-methods"
 import {
+  BOOKING_SOURCE_HINTS,
+  BOOKING_SOURCE_LABELS,
+  isBookingSource,
+  isPlatformBooking,
+  type BookingSource,
+} from "@/lib/booking-source"
+import {
   TOURIST_TAX_STATUS_LABELS,
   type TouristTaxStatus,
 } from "@/lib/tourist-tax"
@@ -42,6 +49,7 @@ import { buildDashboardCouple, buildPrimaryContactName } from "@/lib/wedding-dis
 export default function NewEventPage() {
   const router = useRouter()
   const [eventType, setEventType] = useState<EventType>("wedding")
+  const [bookingSource, setBookingSource] = useState<BookingSource>("direct")
   const [eventName, setEventName] = useState("")
   const [spouse1FirstName, setSpouse1FirstName] = useState("")
   const [spouse1LastName, setSpouse1LastName] = useState("")
@@ -55,6 +63,8 @@ export default function NewEventPage() {
   const [email, setEmail] = useState("")
   const [phone, setPhone] = useState("")
   const [eventDate, setEventDate] = useState("")
+  const [stayArrivalDate, setStayArrivalDate] = useState("")
+  const [stayDepartureDate, setStayDepartureDate] = useState("")
   const [depositAmount, setDepositAmount] = useState("")
   const [balanceAmount, setBalanceAmount] = useState("")
   const [depositAlreadyPaid, setDepositAlreadyPaid] = useState(false)
@@ -67,6 +77,7 @@ export default function NewEventPage() {
   const [generateInvoices, setGenerateInvoices] = useState(true)
   const [isSubmitting, setIsSubmitting] = useState(false)
   const [error, setError] = useState("")
+  const platformManaged = isPlatformBooking(bookingSource)
 
   const handleSubmit = async (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault()
@@ -74,6 +85,7 @@ export default function NewEventPage() {
 
     const validationError = validateNewEventInput({
       eventType,
+      skipBillingAmounts: platformManaged,
       eventName,
       spouse1FirstName,
       spouse1LastName,
@@ -85,6 +97,8 @@ export default function NewEventPage() {
       email,
       phone,
       eventDate,
+      stayArrivalDate,
+      stayDepartureDate,
       depositAmount,
       balanceAmount,
       depositAlreadyPaid,
@@ -117,6 +131,7 @@ export default function NewEventPage() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           eventType,
+          bookingSource,
           eventName: eventName.trim(),
           spouse1FirstName: spouse1FirstName.trim(),
           spouse1LastName: spouse1LastName.trim(),
@@ -131,17 +146,25 @@ export default function NewEventPage() {
           email: email.trim(),
           phone: phone.trim() || spouse1Phone.trim() || spouse2Phone.trim(),
           eventDate,
-          depositAmount,
-          balanceAmount,
+          stayArrivalDate,
+          stayDepartureDate,
+          depositAmount: platformManaged ? depositAmount || "0" : depositAmount,
+          balanceAmount: platformManaged ? balanceAmount || "0" : balanceAmount,
           autopilot,
-          generateInvoices,
-          depositAlreadyPaid,
-          depositPaidDate: depositAlreadyPaid ? depositPaidDate : undefined,
-          depositPaymentMethod: depositAlreadyPaid ? depositPaymentMethod : undefined,
-          touristTaxStatus: eventType === "other" ? undefined : touristTaxStatus,
-          touristTaxAmount: eventType === "other" ? undefined : touristTaxAmount,
+          generateInvoices: platformManaged ? false : generateInvoices,
+          depositAlreadyPaid: platformManaged ? false : depositAlreadyPaid,
+          depositPaidDate:
+            !platformManaged && depositAlreadyPaid ? depositPaidDate : undefined,
+          depositPaymentMethod:
+            !platformManaged && depositAlreadyPaid ? depositPaymentMethod : undefined,
+          touristTaxStatus:
+            platformManaged || eventType === "other" ? undefined : touristTaxStatus,
+          touristTaxAmount:
+            platformManaged || eventType === "other" ? undefined : touristTaxAmount,
           touristTaxPaidDate:
-            eventType !== "other" && touristTaxStatus === "paid"
+            !platformManaged &&
+            eventType !== "other" &&
+            touristTaxStatus === "paid"
               ? touristTaxPaidDate
               : undefined,
         }),
@@ -221,6 +244,38 @@ export default function NewEventPage() {
                       Autre événement
                     </ToggleGroupItem>
                   </ToggleGroup>
+                </div>
+
+                <div className="space-y-2">
+                  <label className="text-sm font-medium text-gray-800">
+                    Source de réservation
+                  </label>
+                  <ToggleGroup
+                    type="single"
+                    variant="outline"
+                    value={bookingSource}
+                    onValueChange={(value) => {
+                      if (isBookingSource(value)) {
+                        setBookingSource(value)
+                        if (value === "platform") {
+                          setGenerateInvoices(false)
+                          setDepositAlreadyPaid(false)
+                          setTouristTaxStatus("")
+                          setTouristTaxAmount("")
+                          setTouristTaxPaidDate("")
+                        }
+                      }
+                    }}
+                    className="w-full max-w-xl grid grid-cols-2"
+                  >
+                    <ToggleGroupItem value="direct" className="flex-1">
+                      {BOOKING_SOURCE_LABELS.direct}
+                    </ToggleGroupItem>
+                    <ToggleGroupItem value="platform" className="flex-1">
+                      {BOOKING_SOURCE_LABELS.platform}
+                    </ToggleGroupItem>
+                  </ToggleGroup>
+                  <p className="text-xs text-gray-500">{BOOKING_SOURCE_HINTS[bookingSource]}</p>
                 </div>
 
                 <div className="space-y-2">
@@ -356,29 +411,58 @@ export default function NewEventPage() {
                     />
                   </div>
                   <div className="space-y-2">
-                    <label className="text-sm font-medium text-gray-800">Acompte (€)</label>
+                    <label className="text-sm font-medium text-gray-800">Arrivée au logement</label>
                     <Input
-                      type="number"
-                      min="0"
-                      value={depositAmount}
-                      onChange={(e) => setDepositAmount(e.target.value)}
-                      placeholder="1500"
+                      type="date"
+                      value={stayArrivalDate}
+                      onChange={(e) => setStayArrivalDate(e.target.value)}
                       required
                     />
                   </div>
                   <div className="space-y-2">
-                    <label className="text-sm font-medium text-gray-800">Solde (€)</label>
+                    <label className="text-sm font-medium text-gray-800">Départ du logement</label>
                     <Input
-                      type="number"
-                      min="0"
-                      value={balanceAmount}
-                      onChange={(e) => setBalanceAmount(e.target.value)}
-                      placeholder="3500"
+                      type="date"
+                      value={stayDepartureDate}
+                      onChange={(e) => setStayDepartureDate(e.target.value)}
+                      min={stayArrivalDate || undefined}
                       required
                     />
                   </div>
+                  {!platformManaged ? (
+                    <>
+                      <div className="space-y-2">
+                        <label className="text-sm font-medium text-gray-800">Acompte (€)</label>
+                        <Input
+                          type="number"
+                          min="0"
+                          value={depositAmount}
+                          onChange={(e) => setDepositAmount(e.target.value)}
+                          placeholder="1500"
+                          required
+                        />
+                      </div>
+                      <div className="space-y-2">
+                        <label className="text-sm font-medium text-gray-800">Solde (€)</label>
+                        <Input
+                          type="number"
+                          min="0"
+                          value={balanceAmount}
+                          onChange={(e) => setBalanceAmount(e.target.value)}
+                          placeholder="3500"
+                          required
+                        />
+                      </div>
+                    </>
+                  ) : (
+                    <div className="md:col-span-2 rounded-lg border border-violet-100 bg-violet-50/60 px-4 py-3 text-sm text-violet-900">
+                      Réservation plateforme : pas de facture ni de taxe de séjour dans Cap&apos;Bat.
+                      Elle compte uniquement pour le planning / remplissage.
+                    </div>
+                  )}
                 </div>
 
+                {!platformManaged ? (
                 <div className="space-y-4 rounded-lg border border-gray-100 p-4">
                   <label className="flex items-start gap-2 text-sm">
                     <Checkbox
@@ -434,8 +518,9 @@ export default function NewEventPage() {
                     </div>
                   ) : null}
                 </div>
+                ) : null}
 
-                {eventType !== "other" ? (
+                {!platformManaged && eventType !== "other" ? (
                   <div className="space-y-4 rounded-lg border border-gray-100 p-4">
                     <p className="text-sm font-medium text-gray-900">Taxe de séjour</p>
                     <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
@@ -499,16 +584,18 @@ export default function NewEventPage() {
                   <Switch checked={autopilot} onCheckedChange={setAutopilot} />
                 </div>
 
-                <div className="flex items-center justify-between rounded-lg border border-gray-100 p-4">
-                  <div>
-                    <p className="text-sm font-medium text-gray-800">Factures brouillon</p>
-                    <p className="text-xs text-gray-500">
-                      Crée automatiquement les factures d&apos;acompte et de solde (modifiables dans
-                      Facturation).
-                    </p>
+                {!platformManaged ? (
+                  <div className="flex items-center justify-between rounded-lg border border-gray-100 p-4">
+                    <div>
+                      <p className="text-sm font-medium text-gray-800">Factures brouillon</p>
+                      <p className="text-xs text-gray-500">
+                        Crée automatiquement les factures d&apos;acompte et de solde (modifiables dans
+                        Facturation).
+                      </p>
+                    </div>
+                    <Switch checked={generateInvoices} onCheckedChange={setGenerateInvoices} />
                   </div>
-                  <Switch checked={generateInvoices} onCheckedChange={setGenerateInvoices} />
-                </div>
+                ) : null}
 
                 {error ? <p className="text-sm text-red-600">{error}</p> : null}
 

@@ -43,34 +43,41 @@ export type InvoiceTemplateContext = {
 export const DEFAULT_INVOICE_TEMPLATE: InvoiceTemplate = {
   primaryColor: "#1e40af",
   footerText: "",
-  legalNotice: "Paiement par virement bancaire sous 30 jours. TVA non applicable, art. 293 B du CGI.",
+  legalNotice: "TVA non applicable, art. 293 B du CGI.",
   defaultDueDays: 30,
-  defaultVatRate: 20,
+  defaultVatRate: 10,
   depositLabel: "Acompte — {{event_type}} {{couple}} — {{date}}",
   balanceLabel: "Solde — {{event_type}} {{couple}} — {{date}}",
   fullLabel: "Prestation complète — {{event_type}} {{couple}} — {{date}}",
-  catalog: [
-    { id: "extra-salle", label: "Location salle supplémentaire", unitPrice: 500, kind: "extra" },
-    { id: "extra-bar", label: "Bar à vin", unitPrice: 800, kind: "extra" },
-    { id: "discount", label: "Remise commerciale", unitPrice: -200, kind: "discount" },
-  ],
+  catalog: [],
   autoGenerateOnEventCreate: true,
   tagline: "Réception & hébergement",
-  thankYouMessage: "Merci de nous confier ce jour si précieux.",
+  thankYouMessage: "Merci de me confier ce jour si précieux.",
   signature: "",
   bankIban: "",
   bankBic: "",
   bankHolder: "",
 }
 
+/** Anciennes suggestions préremplies — retirées, on ne les réinjecte plus. */
+const LEGACY_CATALOG_IDS = new Set(["extra-salle", "extra-bar", "discount"])
+
 export function mergeInvoiceTemplate(
   partial: Partial<InvoiceTemplate> | null | undefined
 ): InvoiceTemplate {
-  if (!partial) return { ...DEFAULT_INVOICE_TEMPLATE, catalog: [...DEFAULT_INVOICE_TEMPLATE.catalog] }
+  if (!partial) return { ...DEFAULT_INVOICE_TEMPLATE, catalog: [] }
+  const catalog = Array.isArray(partial.catalog)
+    ? partial.catalog.filter((item) => !LEGACY_CATALOG_IDS.has(item.id))
+    : []
   return {
     ...DEFAULT_INVOICE_TEMPLATE,
     ...partial,
-    catalog: partial.catalog?.length ? partial.catalog : [...DEFAULT_INVOICE_TEMPLATE.catalog],
+    catalog,
+    // Cap'Bat : prestations à 10 %. L'ancien défaut 20 était incorrect.
+    defaultVatRate:
+      typeof partial.defaultVatRate === "number" && partial.defaultVatRate !== 20
+        ? partial.defaultVatRate
+        : 10,
   }
 }
 
@@ -87,22 +94,35 @@ export function applyInvoiceTemplateVars(
     .replaceAll("{{event_name}}", context.eventName?.trim() || context.couple)
 }
 
+const OTHER_LABELS: Record<InvoiceType, string> = {
+  deposit: "Acompte — {{event_name}} — {{date}}",
+  balance: "Solde — {{event_name}} — {{date}}",
+  full: "Prestation — {{event_name}} — {{date}}",
+}
+
+export function labelTemplateForOccasion(
+  type: InvoiceType,
+  template: InvoiceTemplate,
+  occasion: "wedding" | "other"
+): string {
+  if (occasion === "other") return OTHER_LABELS[type]
+  if (type === "deposit") return template.depositLabel
+  if (type === "balance") return template.balanceLabel
+  return template.fullLabel
+}
+
 export function buildLineItemsFromTemplate(
   type: InvoiceType,
   context: InvoiceTemplateContext,
   template: InvoiceTemplate,
   depositAmount: number | string,
-  balanceAmount: number | string
+  balanceAmount: number | string,
+  occasion: "wedding" | "other" = context.eventType === "wedding" ? "wedding" : "other"
 ): InvoiceLineItem[] {
   const deposit = parseEuroAmount(depositAmount)
   const balance = parseEuroAmount(balanceAmount)
 
-  const labelTemplate =
-    type === "deposit"
-      ? template.depositLabel
-      : type === "balance"
-        ? template.balanceLabel
-        : template.fullLabel
+  const labelTemplate = labelTemplateForOccasion(type, template, occasion)
 
   const amount =
     type === "deposit" ? deposit : type === "balance" ? balance : deposit + balance
