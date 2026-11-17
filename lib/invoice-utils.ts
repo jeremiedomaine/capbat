@@ -26,6 +26,13 @@ export function formatEuroDetailed(amount: number): string {
   }).format(amount)
 }
 
+/** Cap'Bat : prestations à 10 %. L'ancien défaut SQL/UI à 20 % est corrigé. */
+export function normalizeCapBatVatRate(value: unknown): number {
+  const rate = typeof value === "number" ? value : Number(value)
+  if (!Number.isFinite(rate) || rate === 20) return 10
+  return Math.max(0, rate)
+}
+
 export function computeAmountHt(amountTtc: number, vatRate: number): number {
   if (vatRate <= 0) return amountTtc
   return amountTtc / (1 + vatRate / 100)

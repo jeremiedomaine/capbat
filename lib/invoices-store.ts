@@ -16,7 +16,12 @@ import type {
   UpdateInvoiceInput,
 } from "@/lib/invoice-types"
 import { parseInvoiceOccasion } from "@/lib/invoice-types"
-import { buildInvoiceNumber, lineItemsTotal, todayIsoDate } from "@/lib/invoice-utils"
+import {
+  buildInvoiceNumber,
+  lineItemsTotal,
+  normalizeCapBatVatRate,
+  todayIsoDate,
+} from "@/lib/invoice-utils"
 
 const TABLE = process.env.SUPABASE_INVOICES_TABLE?.trim() || "invoices"
 const DATA_FILE = path.join(process.cwd(), "data", "invoices.json")
@@ -98,7 +103,7 @@ export async function createInvoice(input: CreateInvoiceInput): Promise<Invoice>
     // Champ DB conservé ; plus exposé à Capucine (facturation rétroactive).
     dueAt: input.dueAt ?? input.issuedAt ?? todayIsoDate(),
     amountTtc,
-    vatRate: input.vatRate ?? 10,
+    vatRate: normalizeCapBatVatRate(input.vatRate ?? 10),
     lineItems: input.lineItems,
     issuer: input.issuer,
     client: input.client,
@@ -153,7 +158,10 @@ export async function updateInvoice(
     amountTtc,
     issuedAt: input.issuedAt ?? current.issuedAt,
     dueAt: input.dueAt ?? current.dueAt,
-    vatRate: input.vatRate ?? current.vatRate,
+    vatRate:
+      input.vatRate !== undefined
+        ? normalizeCapBatVatRate(input.vatRate)
+        : normalizeCapBatVatRate(current.vatRate),
     notes: input.notes !== undefined ? input.notes.trim() || undefined : current.notes,
     status: input.status ?? current.status,
     client: input.client ?? current.client,
@@ -315,7 +323,7 @@ function mapDbRow(row: Record<string, unknown>): Invoice {
     issuedAt: String(row.issued_at).slice(0, 10),
     dueAt: String(row.due_at).slice(0, 10),
     amountTtc: Number(row.amount_ttc),
-    vatRate: Number(row.vat_rate ?? 10),
+    vatRate: normalizeCapBatVatRate(row.vat_rate),
     lineItems: (row.line_items as Invoice["lineItems"]) ?? [],
     issuer,
     client: row.client as Invoice["client"],

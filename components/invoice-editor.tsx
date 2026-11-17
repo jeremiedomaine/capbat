@@ -39,9 +39,9 @@ import type {
   InvoiceStatus,
 } from "@/lib/invoice-types"
 import { INVOICE_STATUS_LABELS, INVOICE_TYPE_LABELS } from "@/lib/invoice-types"
-import { formatEuro, lineItemsTotal } from "@/lib/invoice-utils"
+import { formatEuro, lineItemsTotal, normalizeCapBatVatRate } from "@/lib/invoice-utils"
 import { DEFAULT_WORKSPACE_SETTINGS, type WorkspaceSettings } from "@/lib/workspace-settings"
-import { loadWorkspaceSettings } from "@/lib/workspace-settings-client"
+import { loadWorkspaceSettings, persistWorkspaceSettings } from "@/lib/workspace-settings-client"
 
 type EditableLine = InvoiceLineItem & { key: string }
 
@@ -85,6 +85,10 @@ export function InvoiceEditor({ invoiceId }: { invoiceId: string }) {
   const [saving, setSaving] = useState(false)
   const [downloading, setDownloading] = useState(false)
   const [dirty, setDirty] = useState(false)
+  const [formulaOpen, setFormulaOpen] = useState(false)
+  const [formulaLabel, setFormulaLabel] = useState("")
+  const [formulaPrice, setFormulaPrice] = useState("")
+  const [formulaSaving, setFormulaSaving] = useState(false)
 
   const load = useCallback(async () => {
     setLoading(true)
@@ -102,7 +106,7 @@ export function InvoiceEditor({ invoiceId }: { invoiceId: string }) {
       setClient(inv.client)
       setNotes(inv.notes ?? "")
       setIssuedAt(inv.issuedAt.slice(0, 10))
-      setVatRate(inv.vatRate)
+      setVatRate(normalizeCapBatVatRate(inv.vatRate))
       setStatus(inv.status)
       setLocked(inv.locked)
       setDirty(false)
@@ -185,6 +189,48 @@ export function InvoiceEditor({ invoiceId }: { invoiceId: string }) {
       },
     ])
     markDirty()
+  }
+
+  const saveNewFormula = async () => {
+    const label = formulaLabel.trim()
+    const unitPrice = Number(formulaPrice)
+    if (!label) {
+      toast.error("Nommez la formule.")
+      return
+    }
+    if (!Number.isFinite(unitPrice)) {
+      toast.error("Indiquez un prix TTC.")
+      return
+    }
+    setFormulaSaving(true)
+    try {
+      const item: InvoiceCatalogItem = {
+        id: `item-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 5)}`,
+        label,
+        unitPrice,
+        kind: unitPrice < 0 ? "discount" : "extra",
+      }
+      const saved = await persistWorkspaceSettings({
+        invoiceTemplate: {
+          ...settings.invoiceTemplate,
+          catalog: [...settings.invoiceTemplate.catalog, item],
+        },
+      })
+      setSettings(saved)
+      addFromCatalog(item)
+      setFormulaLabel("")
+      setFormulaPrice("")
+      setFormulaOpen(false)
+      toast.success("Formule enregistrée", {
+        description: "Disponible sur toutes les factures au prochain clic.",
+      })
+    } catch (e) {
+      toast.error("Formule non enregistrée", {
+        description: e instanceof Error ? e.message : "Réessayez.",
+      })
+    } finally {
+      setFormulaSaving(false)
+    }
   }
 
   const removeLine = (key: string) => {
@@ -390,33 +436,85 @@ export function InvoiceEditor({ invoiceId }: { invoiceId: string }) {
             <CardHeader>
               <CardTitle>Prestations</CardTitle>
               <CardDescription>
-                Formules rapides (réglages factures) ou lignes libres. TVA {vatRate}&nbsp;% par défaut.
+                Cliquez une formule pour ajouter la ligne, ou créez-en une ici. TVA {vatRate}&nbsp;%.
               </CardDescription>
             </CardHeader>
             <CardContent className="space-y-4">
               {!readOnly ? (
-                <div className="flex flex-wrap gap-2">
-                  {catalog.map((item) => (
+                <div className="space-y-3">
+                  <div className="flex flex-wrap gap-2">
+                    {catalog.map((item) => (
+                      <Button
+                        key={item.id}
+                        type="button"
+                        size="sm"
+                        variant="secondary"
+                        onClick={() => addFromCatalog(item)}
+                      >
+                        <Plus className="w-3.5 h-3.5 mr-1" />
+                        {item.label}
+                        <span className="ml-1 text-gray-500">{formatEuro(item.unitPrice)}</span>
+                      </Button>
+                    ))}
                     <Button
-                      key={item.id}
                       type="button"
                       size="sm"
-                      variant="secondary"
-                      onClick={() => addFromCatalog(item)}
+                      variant="outline"
+                      onClick={() => setFormulaOpen((open) => !open)}
                     >
                       <Plus className="w-3.5 h-3.5 mr-1" />
-                      {item.label}
-                      <span className="ml-1 text-gray-500">{formatEuro(item.unitPrice)}</span>
+                      Nouvelle formule
                     </Button>
-                  ))}
-                  <Button type="button" size="sm" variant="outline" onClick={() => addLine("extra")}>
-                    <Plus className="w-3.5 h-3.5 mr-1" />
-                    Ligne libre
-                  </Button>
-                  <Button type="button" size="sm" variant="outline" onClick={() => addLine("discount")}>
-                    <Minus className="w-3.5 h-3.5 mr-1" />
-                    Remise
-                  </Button>
+                    <Button type="button" size="sm" variant="outline" onClick={() => addLine("extra")}>
+                      <Plus className="w-3.5 h-3.5 mr-1" />
+                      Ligne libre
+                    </Button>
+                    <Button type="button" size="sm" variant="outline" onClick={() => addLine("discount")}>
+                      <Minus className="w-3.5 h-3.5 mr-1" />
+                      Remise
+                    </Button>
+                  </div>
+                  {formulaOpen ? (
+                    <div className="rounded-lg border border-gray-200 bg-gray-50/80 p-3 space-y-3">
+                      <p className="text-sm font-medium text-gray-800">Nouvelle formule rapide</p>
+                      <div className="grid grid-cols-1 sm:grid-cols-[1fr_120px_auto] gap-2">
+                        <Input
+                          value={formulaLabel}
+                          onChange={(e) => setFormulaLabel(e.target.value)}
+                          placeholder="Ex. Formule Haute Saison"
+                          autoFocus
+                        />
+                        <Input
+                          type="number"
+                          step={0.01}
+                          value={formulaPrice}
+                          onChange={(e) => setFormulaPrice(e.target.value)}
+                          placeholder="€ TTC"
+                        />
+                        <div className="flex gap-2">
+                          <Button type="button" size="sm" onClick={saveNewFormula} disabled={formulaSaving}>
+                            {formulaSaving ? <Loader2 className="w-3.5 h-3.5 mr-1 animate-spin" /> : null}
+                            Enregistrer
+                          </Button>
+                          <Button
+                            type="button"
+                            size="sm"
+                            variant="ghost"
+                            onClick={() => {
+                              setFormulaOpen(false)
+                              setFormulaLabel("")
+                              setFormulaPrice("")
+                            }}
+                          >
+                            Annuler
+                          </Button>
+                        </div>
+                      </div>
+                      <p className="text-xs text-gray-500">
+                        Enregistrée pour toutes les prochaines factures, et ajoutée tout de suite ici.
+                      </p>
+                    </div>
+                  ) : null}
                 </div>
               ) : null}
 

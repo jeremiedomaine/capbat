@@ -121,35 +121,8 @@ export function InvoiceSettingsSheet({ open, onOpenChange, settings, onSaved }: 
           </Section>
 
           <Section
-            title="RIB"
-            hint="À remplir une seule fois : IBAN, BIC et titulaire apparaissent ensuite sur toutes les factures."
-          >
-            <Field label="IBAN" className="sm:col-span-2">
-              <Input
-                value={template.bankIban}
-                placeholder="FR76 …"
-                onChange={(e) => patchTemplate({ bankIban: e.target.value })}
-              />
-            </Field>
-            <Field label="BIC">
-              <Input
-                value={template.bankBic}
-                placeholder="AGRIFRPP…"
-                onChange={(e) => patchTemplate({ bankBic: e.target.value })}
-              />
-            </Field>
-            <Field label="Titulaire du compte">
-              <Input
-                value={template.bankHolder}
-                placeholder={settings.companyName || "Cap'Bat"}
-                onChange={(e) => patchTemplate({ bankHolder: e.target.value })}
-              />
-            </Field>
-          </Section>
-
-          <Section
             title="TVA"
-            hint="10 % par défaut sur chaque nouvelle facture — modifiable au cas par cas."
+            hint="10 % par défaut sur chaque nouvelle facture — modifiable au cas par cas. Le RIB se renseigne dans Paramètres."
           >
             <Field label="TVA par défaut (%)">
               <Input
@@ -208,21 +181,16 @@ export function InvoiceSettingsSheet({ open, onOpenChange, settings, onSaved }: 
           </Section>
 
           <div className="space-y-3">
-            <div className="flex items-center justify-between gap-3">
-              <div>
-                <h3 className="text-sm font-semibold text-gray-900">Formules rapides</h3>
-                <p className="text-xs text-gray-500">
-                  Créez vos lignes prédéfinies (nom + prix). Un clic les ajoute sur une facture.
-                </p>
-              </div>
-              <Button type="button" size="sm" variant="outline" onClick={addCatalogItem}>
-                <Plus className="w-3.5 h-3.5 mr-1" />
-                Ajouter une formule
-              </Button>
+            <div>
+              <h3 className="text-sm font-semibold text-gray-900">Formules rapides</h3>
+              <p className="text-xs text-gray-500">
+                Création principale depuis l&apos;édition d&apos;une facture (« Nouvelle formule »). Ici vous
+                pouvez renommer, ajuster le prix ou supprimer.
+              </p>
             </div>
             {template.catalog.length === 0 ? (
               <p className="text-xs text-gray-500 rounded-md border border-dashed border-gray-200 px-3 py-4">
-                Ex. « Formule Haute Saison », « Ménage », « Linge »…
+                Aucune formule pour l&apos;instant — ouvrez une facture et cliquez sur « Nouvelle formule ».
               </p>
             ) : null}
             {template.catalog.map((item) => (
@@ -254,6 +222,10 @@ export function InvoiceSettingsSheet({ open, onOpenChange, settings, onSaved }: 
                 </Button>
               </div>
             ))}
+            <Button type="button" size="sm" variant="outline" onClick={addCatalogItem}>
+              <Plus className="w-3.5 h-3.5 mr-1" />
+              Ajouter une formule
+            </Button>
           </div>
 
           <div className="flex items-center justify-between gap-4 rounded-lg border border-gray-100 p-4">

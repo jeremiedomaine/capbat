@@ -18,6 +18,9 @@ export default function ParametresPage() {
   const [managerName, setManagerName] = useState("Marie Clement")
   const [email, setEmail] = useState("contact@domainedesroses.fr")
   const [phone, setPhone] = useState("+33 6 12 34 56 78")
+  const [bankIban, setBankIban] = useState("")
+  const [bankBic, setBankBic] = useState("")
+  const [bankHolder, setBankHolder] = useState("")
 
   const [emailNotif, setEmailNotif] = useState(true)
   const [paymentAlerts, setPaymentAlerts] = useState(true)
@@ -33,6 +36,9 @@ export default function ParametresPage() {
         setManagerName(settings.managerName)
         setEmail(settings.contactEmail)
         setPhone(settings.contactPhone)
+        setBankIban(settings.invoiceTemplate.bankIban)
+        setBankBic(settings.invoiceTemplate.bankBic)
+        setBankHolder(settings.invoiceTemplate.bankHolder)
         setEmailNotif(settings.emailNotifications)
         setPaymentAlerts(settings.paymentAlerts)
         setWeeklySummary(settings.weeklySummary)
@@ -55,6 +61,7 @@ export default function ParametresPage() {
       return
     }
     try {
+      const current = await loadWorkspaceSettings()
       await persistWorkspaceSettings({
         companyName: companyName.trim(),
         managerName: managerName.trim(),
@@ -64,6 +71,12 @@ export default function ParametresPage() {
         paymentAlerts,
         weeklySummary,
         darkMode,
+        invoiceTemplate: {
+          ...current.invoiceTemplate,
+          bankIban: bankIban.trim(),
+          bankBic: bankBic.trim(),
+          bankHolder: bankHolder.trim() || companyName.trim(),
+        },
       })
       setSaved(true)
       setTimeout(() => setSaved(false), 2500)
@@ -117,6 +130,44 @@ export default function ParametresPage() {
               <div className="space-y-2">
                 <label className="text-sm font-medium text-gray-800">Telephone</label>
                 <Input value={phone} onChange={(e) => setPhone(e.target.value)} disabled={loading} />
+              </div>
+            </CardContent>
+          </Card>
+
+          <Card className="bg-white border-gray-100 shadow-sm">
+            <CardHeader>
+              <CardTitle>RIB</CardTitle>
+              <CardDescription>
+                Affiché automatiquement en bas de chaque facture, dans les modalités de paiement.
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div className="space-y-2 md:col-span-2">
+                <label className="text-sm font-medium text-gray-800">IBAN</label>
+                <Input
+                  value={bankIban}
+                  onChange={(e) => setBankIban(e.target.value)}
+                  placeholder="FR76 …"
+                  disabled={loading}
+                />
+              </div>
+              <div className="space-y-2">
+                <label className="text-sm font-medium text-gray-800">BIC</label>
+                <Input
+                  value={bankBic}
+                  onChange={(e) => setBankBic(e.target.value)}
+                  placeholder="AGRIFRPP…"
+                  disabled={loading}
+                />
+              </div>
+              <div className="space-y-2">
+                <label className="text-sm font-medium text-gray-800">Titulaire du compte</label>
+                <Input
+                  value={bankHolder}
+                  onChange={(e) => setBankHolder(e.target.value)}
+                  placeholder={companyName || "Domaine de Capbat"}
+                  disabled={loading}
+                />
               </div>
             </CardContent>
           </Card>
