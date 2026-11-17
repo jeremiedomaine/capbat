@@ -43,8 +43,8 @@ export type InvoiceTemplateContext = {
 export const DEFAULT_INVOICE_TEMPLATE: InvoiceTemplate = {
   primaryColor: "#1e40af",
   footerText: "",
-  legalNotice: "TVA non applicable, art. 293 B du CGI.",
-  defaultDueDays: 30,
+  legalNotice: "",
+  defaultDueDays: 0,
   defaultVatRate: 10,
   depositLabel: "Acompte — {{event_type}} {{couple}} — {{date}}",
   balanceLabel: "Solde — {{event_type}} {{couple}} — {{date}}",

@@ -46,14 +46,12 @@ import { InvoiceSettingsSheet } from "@/components/invoice-settings-sheet"
 import { Textarea } from "@/components/ui/textarea"
 import type { Invoice, InvoiceOccasion, InvoiceStatus, InvoiceType } from "@/lib/invoice-types"
 import { INVOICE_OCCASION_LABELS, INVOICE_STATUS_LABELS, INVOICE_TYPE_LABELS } from "@/lib/invoice-types"
-import { applyInvoiceTemplateVars, labelTemplateForOccasion } from "@/lib/invoice-template"
 import {
-  addCalendarDays,
-  formatEuro,
-  lineItemsTotal,
-  parseEuroAmount,
-  todayIsoDate,
-} from "@/lib/invoice-utils"
+  applyInvoiceTemplateVars,
+  labelTemplateForOccasion,
+  type InvoiceCatalogItem,
+} from "@/lib/invoice-template"
+import { formatEuro, lineItemsTotal, parseEuroAmount, todayIsoDate } from "@/lib/invoice-utils"
 import { DEFAULT_WORKSPACE_SETTINGS, type WorkspaceSettings } from "@/lib/workspace-settings"
 import { loadWorkspaceSettings } from "@/lib/workspace-settings-client"
 import { supportsCapBatBilling, type BookingSource } from "@/lib/booking-source"
@@ -128,7 +126,6 @@ export function BillingDashboard() {
   const [createPostalCode, setCreatePostalCode] = useState("")
   const [createCity, setCreateCity] = useState("")
   const [createIssuedAt, setCreateIssuedAt] = useState(todayIsoDate())
-  const [createDueAt, setCreateDueAt] = useState("")
   const [createVatRate, setCreateVatRate] = useState(10)
   const [createNotes, setCreateNotes] = useState("")
 
@@ -165,7 +162,6 @@ export function BillingDashboard() {
         setCreateNotes("")
         const issued = todayIsoDate()
         setCreateIssuedAt(issued)
-        setCreateDueAt(addCalendarDays(issued, template.defaultDueDays))
         setCreateVatRate(template.defaultVatRate)
         return
       }
@@ -201,7 +197,6 @@ export function BillingDashboard() {
       setCreateNotes("")
       const issued = todayIsoDate()
       setCreateIssuedAt(issued)
-      setCreateDueAt(addCalendarDays(issued, template.defaultDueDays))
       setCreateVatRate(template.defaultVatRate)
     },
     [settings.invoiceTemplate]
@@ -216,6 +211,23 @@ export function BillingDashboard() {
       ...prev,
       { key: newCreateLineKey(), label: "", amount: "", periodStart: "", periodEnd: "" },
     ])
+  }
+
+  const addCreateFromCatalog = (item: InvoiceCatalogItem) => {
+    const eventDay = selectedWedding?.eventDate.slice(0, 10) ?? ""
+    const draft: CreateLineDraft = {
+      key: newCreateLineKey(),
+      label: item.label,
+      amount: String(item.unitPrice),
+      periodStart: eventDay,
+      periodEnd: eventDay,
+    }
+    setCreateLines((prev) => {
+      if (prev.length === 1 && !prev[0].label.trim() && !String(prev[0].amount).trim()) {
+        return [draft]
+      }
+      return [...prev, draft]
+    })
   }
 
   const removeCreateLine = (key: string) => {
@@ -371,7 +383,7 @@ export function BillingDashboard() {
             city: createCity.trim() || undefined,
           },
           issuedAt: createIssuedAt || todayIsoDate(),
-          dueAt: createDueAt || addCalendarDays(createIssuedAt || todayIsoDate(), settings.invoiceTemplate.defaultDueDays),
+          dueAt: createIssuedAt || todayIsoDate(),
           vatRate: createVatRate,
           notes: createNotes.trim() || undefined,
           status: "draft",
@@ -534,7 +546,7 @@ export function BillingDashboard() {
                   <TableHead>N°</TableHead>
                   <TableHead>Client</TableHead>
                   <TableHead>Type</TableHead>
-                  <TableHead>Échéance</TableHead>
+                  <TableHead>Émise le</TableHead>
                   <TableHead className="text-right">Montant</TableHead>
                   <TableHead>Statut</TableHead>
                   <TableHead className="text-right" />
@@ -554,7 +566,7 @@ export function BillingDashboard() {
                     </TableCell>
                     <TableCell>{invoice.couple}</TableCell>
                     <TableCell className="text-gray-600 text-sm">{TYPE_SHORT_LABELS[invoice.type]}</TableCell>
-                    <TableCell className="text-gray-600 text-sm">{formatFrenchShort(invoice.dueAt)}</TableCell>
+                    <TableCell className="text-gray-600 text-sm">{formatFrenchShort(invoice.issuedAt)}</TableCell>
                     <TableCell className="text-right font-medium">{formatEuro(invoice.amountTtc)}</TableCell>
                     <TableCell>
                       <div className="flex items-center gap-1.5">
@@ -699,26 +711,49 @@ export function BillingDashboard() {
                 </div>
 
                 <div className="space-y-3">
-                  <div className="flex items-start justify-between gap-3">
-                    <div>
-                      <p className="text-sm font-medium text-gray-800">Lignes de prestation</p>
-                      <p className="text-xs text-gray-500">
-                        Découpez le prix comme vous voulez (libellé + montant libres). Référence événement
-                        {newType === "deposit"
-                          ? ` : acompte ${formatEuro(parseEuroAmount(selectedWedding.deposit.amount))}`
-                          : newType === "balance"
-                            ? ` : solde ${formatEuro(parseEuroAmount(selectedWedding.balance.amount))}`
-                            : ` : total ${formatEuro(
-                                parseEuroAmount(selectedWedding.deposit.amount) +
-                                  parseEuroAmount(selectedWedding.balance.amount)
-                              )}`}
-                        .
-                      </p>
+                  <div className="space-y-2">
+                    <div className="flex items-start justify-between gap-3">
+                      <div>
+                        <p className="text-sm font-medium text-gray-800">Lignes de prestation</p>
+                        <p className="text-xs text-gray-500">
+                          Formules rapides ou ligne libre. Référence événement
+                          {newType === "deposit"
+                            ? ` : acompte ${formatEuro(parseEuroAmount(selectedWedding.deposit.amount))}`
+                            : newType === "balance"
+                              ? ` : solde ${formatEuro(parseEuroAmount(selectedWedding.balance.amount))}`
+                              : ` : total ${formatEuro(
+                                  parseEuroAmount(selectedWedding.deposit.amount) +
+                                    parseEuroAmount(selectedWedding.balance.amount)
+                                )}`}
+                          .
+                        </p>
+                      </div>
+                      <Button type="button" size="sm" variant="outline" onClick={addCreateLine}>
+                        <Plus className="w-3.5 h-3.5 mr-1" />
+                        Ligne libre
+                      </Button>
                     </div>
-                    <Button type="button" size="sm" variant="outline" onClick={addCreateLine}>
-                      <Plus className="w-3.5 h-3.5 mr-1" />
-                      Ajouter une ligne
-                    </Button>
+                    {settings.invoiceTemplate.catalog.length > 0 ? (
+                      <div className="flex flex-wrap gap-2">
+                        {settings.invoiceTemplate.catalog.map((item) => (
+                          <Button
+                            key={item.id}
+                            type="button"
+                            size="sm"
+                            variant="secondary"
+                            onClick={() => addCreateFromCatalog(item)}
+                          >
+                            <Plus className="w-3.5 h-3.5 mr-1" />
+                            {item.label}
+                            <span className="ml-1 text-gray-500">{formatEuro(item.unitPrice)}</span>
+                          </Button>
+                        ))}
+                      </div>
+                    ) : (
+                      <p className="text-xs text-gray-500">
+                        Aucune formule rapide — ajoutez-en dans les réglages des factures.
+                      </p>
+                    )}
                   </div>
                   <div className="space-y-3">
                     {createLines.map((line, index) => (
@@ -791,16 +826,8 @@ export function BillingDashboard() {
                     <Input
                       type="date"
                       value={createIssuedAt}
-                      onChange={(e) => {
-                        const issued = e.target.value
-                        setCreateIssuedAt(issued)
-                        setCreateDueAt(addCalendarDays(issued, settings.invoiceTemplate.defaultDueDays))
-                      }}
+                      onChange={(e) => setCreateIssuedAt(e.target.value)}
                     />
-                  </div>
-                  <div className="space-y-2 sm:col-span-2">
-                    <label className="text-sm font-medium text-gray-800">Échéance</label>
-                    <Input type="date" value={createDueAt} onChange={(e) => setCreateDueAt(e.target.value)} />
                   </div>
                 </div>
 

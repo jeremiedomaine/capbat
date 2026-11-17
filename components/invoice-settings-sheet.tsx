@@ -1,7 +1,7 @@
 "use client"
 
 import { useEffect, useState } from "react"
-import { Loader2, Minus, Plus, Trash2 } from "lucide-react"
+import { Loader2, Plus, Trash2 } from "lucide-react"
 import { toast } from "sonner"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -51,16 +51,16 @@ export function InvoiceSettingsSheet({ open, onOpenChange, settings, onSaved }: 
       catalog: prev.catalog.map((item) => (item.id === id ? { ...item, ...patch } : item)),
     }))
 
-  const addCatalogItem = (kind: InvoiceCatalogItem["kind"]) =>
+  const addCatalogItem = () =>
     setTemplate((prev) => ({
       ...prev,
       catalog: [
         ...prev.catalog,
         {
           id: newCatalogId(),
-          label: kind === "discount" ? "Remise" : "Nouvel extra",
-          unitPrice: kind === "discount" ? -100 : 100,
-          kind,
+          label: "Nouvelle formule",
+          unitPrice: 0,
+          kind: "extra" as const,
         },
       ],
     }))
@@ -147,15 +147,10 @@ export function InvoiceSettingsSheet({ open, onOpenChange, settings, onSaved }: 
             </Field>
           </Section>
 
-          <Section title="Échéance & TVA">
-            <Field label="Échéance par défaut (jours)">
-              <Input
-                type="number"
-                min={1}
-                value={template.defaultDueDays}
-                onChange={(e) => patchTemplate({ defaultDueDays: Math.max(1, Number(e.target.value) || 30) })}
-              />
-            </Field>
+          <Section
+            title="TVA"
+            hint="10 % par défaut sur chaque nouvelle facture — modifiable au cas par cas."
+          >
             <Field label="TVA par défaut (%)">
               <Input
                 type="number"
@@ -164,7 +159,6 @@ export function InvoiceSettingsSheet({ open, onOpenChange, settings, onSaved }: 
                 value={template.defaultVatRate}
                 onChange={(e) => patchTemplate({ defaultVatRate: Math.max(0, Number(e.target.value) || 0) })}
               />
-              <p className="text-xs text-gray-500">Chez Cap&apos;Bat : 10 % sur les prestations.</p>
             </Field>
           </Section>
 
@@ -216,28 +210,27 @@ export function InvoiceSettingsSheet({ open, onOpenChange, settings, onSaved }: 
           <div className="space-y-3">
             <div className="flex items-center justify-between gap-3">
               <div>
-                <h3 className="text-sm font-semibold text-gray-900">Raccourcis (facultatif)</h3>
+                <h3 className="text-sm font-semibold text-gray-900">Formules rapides</h3>
                 <p className="text-xs text-gray-500">
-                  Aucune suggestion par défaut — ajoutez seulement ce que vous utilisez souvent.
+                  Créez vos lignes prédéfinies (nom + prix). Un clic les ajoute sur une facture.
                 </p>
               </div>
-              <div className="flex gap-2">
-                <Button type="button" size="sm" variant="outline" onClick={() => addCatalogItem("extra")}>
-                  <Plus className="w-3.5 h-3.5 mr-1" />
-                  Extra
-                </Button>
-                <Button type="button" size="sm" variant="outline" onClick={() => addCatalogItem("discount")}>
-                  <Minus className="w-3.5 h-3.5 mr-1" />
-                  Remise
-                </Button>
-              </div>
+              <Button type="button" size="sm" variant="outline" onClick={addCatalogItem}>
+                <Plus className="w-3.5 h-3.5 mr-1" />
+                Ajouter une formule
+              </Button>
             </div>
+            {template.catalog.length === 0 ? (
+              <p className="text-xs text-gray-500 rounded-md border border-dashed border-gray-200 px-3 py-4">
+                Ex. « Formule Haute Saison », « Ménage », « Linge »…
+              </p>
+            ) : null}
             {template.catalog.map((item) => (
               <div key={item.id} className="grid grid-cols-[1fr_110px_auto] gap-2 items-center">
                 <Input
                   value={item.label}
                   onChange={(e) => updateCatalogItem(item.id, { label: e.target.value })}
-                  placeholder="Libellé"
+                  placeholder="Nom de la formule / libellé sur facture"
                 />
                 <Input
                   type="number"
@@ -247,6 +240,7 @@ export function InvoiceSettingsSheet({ open, onOpenChange, settings, onSaved }: 
                     const unitPrice = Number(e.target.value) || 0
                     updateCatalogItem(item.id, { unitPrice, kind: unitPrice < 0 ? "discount" : "extra" })
                   }}
+                  placeholder="€ TTC"
                 />
                 <Button
                   type="button"
@@ -254,7 +248,7 @@ export function InvoiceSettingsSheet({ open, onOpenChange, settings, onSaved }: 
                   variant="ghost"
                   className="text-red-600"
                   onClick={() => removeCatalogItem(item.id)}
-                  title="Retirer du catalogue"
+                  title="Supprimer la formule"
                 >
                   <Trash2 className="w-4 h-4" />
                 </Button>

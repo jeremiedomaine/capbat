@@ -78,7 +78,6 @@ export function InvoiceEditor({ invoiceId }: { invoiceId: string }) {
   const [client, setClient] = useState<InvoiceParty>({ name: "", email: "" })
   const [notes, setNotes] = useState("")
   const [issuedAt, setIssuedAt] = useState("")
-  const [dueAt, setDueAt] = useState("")
   const [vatRate, setVatRate] = useState(10)
   const [status, setStatus] = useState<InvoiceStatus>("draft")
   const [locked, setLocked] = useState(false)
@@ -103,7 +102,6 @@ export function InvoiceEditor({ invoiceId }: { invoiceId: string }) {
       setClient(inv.client)
       setNotes(inv.notes ?? "")
       setIssuedAt(inv.issuedAt.slice(0, 10))
-      setDueAt(inv.dueAt.slice(0, 10))
       setVatRate(inv.vatRate)
       setStatus(inv.status)
       setLocked(inv.locked)
@@ -131,11 +129,11 @@ export function InvoiceEditor({ invoiceId }: { invoiceId: string }) {
       client,
       notes,
       issuedAt,
-      dueAt,
+      dueAt: issuedAt,
       vatRate,
       status,
     }),
-    [client, dueAt, issuedAt, lines, notes, status, vatRate]
+    [client, issuedAt, lines, notes, status, vatRate]
   )
 
   const model = useMemo(() => {
@@ -392,7 +390,7 @@ export function InvoiceEditor({ invoiceId }: { invoiceId: string }) {
             <CardHeader>
               <CardTitle>Prestations</CardTitle>
               <CardDescription>
-                Ajoutez les lignes dont vous avez besoin (libellé et montant libres).
+                Formules rapides (réglages factures) ou lignes libres. TVA {vatRate}&nbsp;% par défaut.
               </CardDescription>
             </CardHeader>
             <CardContent className="space-y-4">
@@ -591,17 +589,6 @@ export function InvoiceEditor({ invoiceId }: { invoiceId: string }) {
                   disabled={readOnly}
                   onChange={(e) => {
                     setIssuedAt(e.target.value)
-                    markDirty()
-                  }}
-                />
-              </Field>
-              <Field label="Échéance">
-                <Input
-                  type="date"
-                  value={dueAt}
-                  disabled={readOnly}
-                  onChange={(e) => {
-                    setDueAt(e.target.value)
                     markDirty()
                   }}
                 />

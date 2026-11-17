@@ -17,6 +17,7 @@ export type InvoiceDocumentModel = {
   titleAccent: string
   number: string
   issuedLabel: string
+  /** Conservé pour compatibilité ; non affiché (facturation rétroactive). */
   dueLabel: string
   issuer: {
     name: string
@@ -41,7 +42,7 @@ export type InvoiceDocumentModel = {
   amountHt: number
   vatAmount: number
   amountTtc: number
-  /** Texte d'échéance / référence, sans imposer un mode de paiement. */
+  /** Modalités de paiement (référence facture) ; le RIB est dans `bank`. */
   paymentText: string
   bank: { iban: string; bic: string; holder: string } | null
   notes: string
@@ -111,7 +112,6 @@ export function buildInvoiceDocument(params: {
   const clientPostalCity = [client.postalCode, prettifyCity(client.city)].filter(Boolean).join(" ")
   const clientContact = [client.email, formatPhone(client.phone)].filter(Boolean).join(" · ")
 
-  const dueLabel = formatLongDate(invoice.dueAt)
   const bank = template.bankIban.trim()
     ? {
         iban: formatIban(template.bankIban),
@@ -130,7 +130,7 @@ export function buildInvoiceDocument(params: {
     titleAccent: TITLE_ACCENTS[invoice.type],
     number: invoice.number,
     issuedLabel: formatLongDate(invoice.issuedAt),
-    dueLabel,
+    dueLabel: "",
     issuer: {
       name: issuer.name,
       tagline,
@@ -162,7 +162,7 @@ export function buildInvoiceDocument(params: {
     amountHt: computeAmountHt(amountTtc, vatRate),
     vatAmount: computeVatAmount(amountTtc, vatRate),
     amountTtc,
-    paymentText: `Échéance le ${dueLabel}. Merci d'indiquer la référence ${invoice.number}.`,
+    paymentText: `Merci d'indiquer la référence ${invoice.number} lors du règlement.`,
     bank,
     notes: invoice.notes?.trim() ?? "",
     thanks: {

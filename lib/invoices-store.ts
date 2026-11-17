@@ -95,7 +95,8 @@ export async function createInvoice(input: CreateInvoiceInput): Promise<Invoice>
     occasion: parseInvoiceOccasion(input.occasion),
     status: input.status ?? "draft",
     issuedAt: input.issuedAt ?? todayIsoDate(),
-    dueAt: input.dueAt ?? todayIsoDate(),
+    // Champ DB conservé ; plus exposé à Capucine (facturation rétroactive).
+    dueAt: input.dueAt ?? input.issuedAt ?? todayIsoDate(),
     amountTtc,
     vatRate: input.vatRate ?? 10,
     lineItems: input.lineItems,

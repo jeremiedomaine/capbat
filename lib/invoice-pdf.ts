@@ -325,7 +325,6 @@ function drawParties(canvas: Canvas, model: InvoiceDocumentModel, top: number): 
   const meta: Array<[string, string]> = [
     ["N°", model.number],
     ["Émise le", model.issuedLabel],
-    ["Échéance", model.dueLabel],
   ]
   let rightY = top + 21
   for (const [label, value] of meta) {
@@ -443,7 +442,7 @@ function measurePayment(canvas: Canvas, model: InvoiceDocumentModel): number {
   const { columnWidth } = paymentColumns(model)
   const textLines = canvas.wrap(model.paymentText, 11, canvas.fonts.light, columnWidth).length
   const bankLines = model.bank ? 2 : 0
-  return 36 + 20 + Math.max(textLines, bankLines + (model.bank ? 1 : 0)) * 18.7 + (model.bank ? 19 : 0)
+  return 36 + 20 + 19 + Math.max(textLines, bankLines) * 18.7
 }
 
 function drawPayment(canvas: Canvas, model: InvoiceDocumentModel, top: number): number {
@@ -454,13 +453,15 @@ function drawPayment(canvas: Canvas, model: InvoiceDocumentModel, top: number): 
   const contentTop = lineTop + 20
 
   let y = contentTop
+  drawLabel(canvas, "Modalités de paiement", LEFT, contentTop)
+  y = contentTop + 19
   for (const line of canvas.wrap(model.paymentText, 11, fonts.light, columnWidth)) {
     canvas.text(line, LEFT, y + 12, 11, fonts.light, COLORS.inkSoft)
     y += 18.7
   }
 
   if (model.bank) {
-    drawLabel(canvas, "Coordonnées bancaires", rightX, contentTop)
+    drawLabel(canvas, "RIB", rightX, contentTop)
     canvas.text(model.bank.iban, rightX, contentTop + 19 + 12, 11, fonts.regular, COLORS.ink, { spacing: 0.06 })
     const bankLine = [model.bank.bic ? `BIC ${model.bank.bic}` : null, model.bank.holder].filter(Boolean).join(" · ")
     canvas.text(bankLine, rightX, contentTop + 19 + 18.7 + 12, 11, fonts.light, COLORS.inkSoft)

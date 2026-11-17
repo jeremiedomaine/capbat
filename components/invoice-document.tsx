@@ -96,8 +96,6 @@ export function InvoiceDocument({ model }: { model: InvoiceDocumentModel }) {
             <dd>{model.number}</dd>
             <dt>Émise le</dt>
             <dd>{model.issuedLabel}</dd>
-            <dt>Échéance</dt>
-            <dd>{model.dueLabel}</dd>
           </dl>
         </div>
       </section>
@@ -152,11 +150,12 @@ export function InvoiceDocument({ model }: { model: InvoiceDocumentModel }) {
 
       <section className={cn(styles.payment, !model.bank && styles.paymentSingle)}>
         <div>
+          <div className={styles.label}>Modalités de paiement</div>
           <p>{model.paymentText}</p>
         </div>
         {model.bank ? (
           <div>
-            <div className={styles.label}>Coordonnées bancaires</div>
+            <div className={styles.label}>RIB</div>
             <p>
               <span className={styles.iban}>{model.bank.iban}</span>
               <br />

@@ -2,18 +2,14 @@ import { buildLineItemsFromTemplate, type InvoiceTemplate } from "@/lib/invoice-
 import { listWeddings, type Wedding } from "@/lib/weddings-store"
 import { createInvoice, findInvoiceByWeddingAndType } from "@/lib/invoices-store"
 import type { CreateInvoiceInput, Invoice, InvoiceParty, InvoiceType } from "@/lib/invoice-types"
-import {
-  addCalendarDays,
-  lineItemsTotal,
-  parseEuroAmount,
-  todayIsoDate,
-} from "@/lib/invoice-utils"
+import { lineItemsTotal, parseEuroAmount, todayIsoDate } from "@/lib/invoice-utils"
 
 export type GenerateInvoicesOptions = {
   types: InvoiceType[]
   weddingIds?: number[]
   issuer: InvoiceParty
   vatRate?: number
+  /** @deprecated Ignoré — plus d'échéance affichée. */
   dueInDays?: number
   template?: InvoiceTemplate
 }
@@ -36,9 +32,8 @@ export async function generateInvoicesForWeddings(
 
   const created: Invoice[] = []
   const skipped: GenerateInvoicesResult["skipped"] = []
-  const dueInDays = options.dueInDays ?? 30
   const issuedAt = todayIsoDate()
-  const dueAt = addCalendarDays(issuedAt, dueInDays)
+  const dueAt = issuedAt
 
   for (const wedding of filtered) {
     for (const type of options.types) {
